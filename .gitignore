@@ -1,0 +1,56 @@
+# Python 缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/
+CLAUDE.md
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 模型检查点和训练输出
+myGNN/checkpoints/*
+*.pth
+*.pt
+*.ckpt
+
+# 数据文件(可选,根据需要调整)
+*.npy
+*.npz
+
+# 日志文件
+*.log
+log/
+logs/
+
+# 实验输出
+*_output.txt
+*.pdf
+
+# 临时文件
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# NNI 相关
+nni/
+
+origin_gnn/
+data/*
+analysis_results/
