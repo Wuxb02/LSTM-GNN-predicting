@@ -141,9 +141,9 @@ class Config:
 
         # ==================== 模型配置 ====================
         # 支持的模型:
-        # 基础模型: 'GAT_LSTM', 'GSAGE_LSTM', 'LSTM'
+        # 基础模型: 'GAT_LSTM', 'GSAGE_LSTM', 'LSTM', 'GAT_Pure' (纯GAT，无LSTM)
         # 分离式编码: 'GAT_SeparateEncoder', 'GSAGE_SeparateEncoder' (静态/动态分离)
-        self.exp_model = 'GSAGE_SeparateEncoder'
+        self.exp_model = 'GAT_Pure'
 
         # ==================== 图结构配置 ====================
         # 图类型选择：
@@ -151,10 +151,10 @@ class Config:
         # - 'spatial_similarity': 基于空间相似性的图（GeoGAT方法，适合特征相似性建模）
         # - 'knn': K近邻图（无权重，简单快速）
         # - 'full': 全连接图（计算密集，适合小规模节点）
-        self.graph_type = 'spatial_similarity'  # 默认使用逆距离权重图
+        self.graph_type = 'inv_dis'  # 默认使用逆距离权重图
 
         # K近邻图参数（用于 'inv_dis' 和 'knn' 类型）
-        self.top_neighbors = 10
+        self.top_neighbors = 5
         self.use_edge_attr = True  # 是否使用边属性（逆距离权重）
 
         # 空间相似性图参数（用于 'spatial_similarity' 类型）
@@ -175,7 +175,7 @@ class Config:
         self.batch_size = 32      # 批次大小（从128改为32以平衡内存和收敛速度）
         self.epochs = 500
         self.lr = 0.001
-        self.weight_decay = 5e-2  # 从1e-4增大到1e-3以增强正则化
+        self.weight_decay = 1e-4  # 从1e-4增大到1e-3以增强正则化
         self.early_stop = 50      # 早停耐心值
 
         # 优化器配置

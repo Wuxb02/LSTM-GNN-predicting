@@ -21,7 +21,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from models import GAT_LSTM, GSAGE_LSTM, LSTM_direct
+from models import GAT_LSTM, GSAGE_LSTM, LSTM_direct, GAT_Pure
 from models.GAT_SeparateEncoder import GAT_SeparateEncoder
 from models.GSAGE_SeparateEncoder import GSAGE_SeparateEncoder
 
@@ -139,6 +139,7 @@ def get_model(config, arch_arg):
         - 'GAT_LSTM': 图注意力网络 + LSTM
         - 'GSAGE_LSTM': GraphSAGE + LSTM
         - 'LSTM': 基线LSTM模型
+        - 'GAT_Pure': 纯图注意力网络（无LSTM）
 
         分离式编码模型:
         - 'GAT_SeparateEncoder': GAT + 分离式编码器（静态/动态分离）
@@ -151,6 +152,8 @@ def get_model(config, arch_arg):
         return GSAGE_LSTM(config, arch_arg)
     elif config.exp_model == 'LSTM':
         return LSTM_direct(config, arch_arg)
+    elif config.exp_model == 'GAT_Pure':
+        return GAT_Pure(config, arch_arg)
 
     # ===== 分离式编码模型 =====
     elif config.exp_model == 'GAT_SeparateEncoder':
@@ -162,7 +165,7 @@ def get_model(config, arch_arg):
         raise ValueError(
             f"未知的模型类型: {config.exp_model}\n"
             f"支持: \n"
-            f"基础模型: GAT_LSTM, GSAGE_LSTM, LSTM\n"
+            f"基础模型: GAT_LSTM, GSAGE_LSTM, LSTM, GAT_Pure\n"
             f"分离式编码: GAT_SeparateEncoder, GSAGE_SeparateEncoder"
         )
 
