@@ -13,7 +13,7 @@
 
 ## 📖 项目简介
 
-本项目实现了论文《Intra-city Scale Graph Neural Networks Enhance Short-term Air Temperature Forecasting》中的GNN气温预测方法,提供完整的训练、评估、可解释性分析和超参数调优工具。
+本项目实现了GNN气温预测方法,提供完整的训练、评估、可解释性分析和超参数调优工具。
 
 **核心特性:**
 - 🔥 **多种GNN模型** - GAT/GSAGE + LSTM,支持分离式编码器
@@ -548,84 +548,7 @@ python myGNN/explain_model.py \
 
 ---
 
-## 🚀 未来计划
 
-- [ ] 支持多变量预测(同时预测tmin, tmax, tave)
-- [ ] 添加时空交错模型(Spatial-Temporal Interleaved)
-- [ ] 添加Transformer时序建模支持
-- [ ] 实现动态图学习
-- [ ] 开发在线预测API
-- [ ] 添加更多城市数据集
-- [ ] 开发Web可视化界面
-
----
-
-## 📄 引用
-
-如果您在研究中使用本项目,请引用我们的论文:
-
-```bibtex
-@article{gnn_temp_predict_2025,
-  title={Intra-city Scale Graph Neural Networks Enhance Short-term Air Temperature Forecasting},
-  author={...},
-  journal={...},
-  year={2025}
-}
-```
-
-**可解释性分析模块引用:**
-
-```bibtex
-@article{explainer_module_2025,
-  title={Hybrid Explainability Framework for Graph Neural Networks in Weather Forecasting},
-  note={Available at: https://github.com/...},
-  year={2025}
-}
-```
-
-**加权趋势损失引用:**
-
-```bibtex
-@article{liu2025weighted,
-  title={基于注意力机制与加权趋势损失的风速订正方法},
-  author={刘旭 and others},
-  journal={应用气象学报},
-  year={2025}
-}
-```
-
----
-
-## 👥 贡献者
-
-- 项目负责人: [Your Name]
-- 核心开发: [Team Members]
-
----
-
-## 📧 联系方式
-
-- 项目主页: [GitHub Repository]
-- 问题反馈: [Issue Tracker]
-- 邮箱: [Contact Email]
-
----
-
-## 📜 许可证
-
-本项目采用MIT许可证 - 详见 [LICENSE](LICENSE) 文件
-
----
-
-## 🙏 致谢
-
-- PyTorch Geometric团队提供的优秀图神经网络框架
-- Captum团队提供的模型可解释性工具
-- Optuna团队提供的超参数优化框架
-- Cartopy和Mapbox提供的地图可视化支持
-- 所有贡献者和用户的支持
-
----
 
 <div align="center">
 
