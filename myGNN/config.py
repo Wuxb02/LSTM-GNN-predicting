@@ -143,7 +143,7 @@ class Config:
         # 支持的模型:
         # 基础模型: 'GAT_LSTM', 'GSAGE_LSTM', 'LSTM', 'GAT_Pure' (纯GAT，无LSTM)
         # 分离式编码: 'GAT_SeparateEncoder', 'GSAGE_SeparateEncoder' (静态/动态分离)
-        self.exp_model = 'GAT_LSTM'
+        self.exp_model = 'GSAGE_SeparateEncoder'
 
         # ==================== 图结构配置 ====================
         # 图类型选择：
@@ -151,14 +151,14 @@ class Config:
         # - 'spatial_similarity': 基于空间相似性的图（GeoGAT方法，适合特征相似性建模）
         # - 'knn': K近邻图（无权重，简单快速）
         # - 'full': 全连接图（计算密集，适合小规模节点）
-        self.graph_type = 'inv_dis'  # 默认使用逆距离权重图
+        self.graph_type = 'spatial_similarity'  # 默认使用逆距离权重图
 
         # K近邻图参数（用于 'inv_dis' 和 'knn' 类型）
         self.top_neighbors = 5
         self.use_edge_attr = True  # 是否使用边属性（逆距离权重）
 
         # 空间相似性图参数（用于 'spatial_similarity' 类型）
-        self.spatial_sim_top_k = 5              # 选择最相似的K个邻居（论文推荐10），一共构建多少边
+        self.spatial_sim_top_k = 4              # 选择最相似的K个邻居（论文推荐10），一共构建多少边
         self.spatial_sim_alpha = 1.0             # 邻域相似性权重系数（论文默认1.0）
         self.spatial_sim_use_neighborhood = True  # 是否使用邻域相似性
         self.spatial_sim_initial_neighbors = 3   # 用于计算邻域相似性的初始空间邻居数，判断地理背景
@@ -255,7 +255,7 @@ class ArchConfig:
 
     def __init__(self):
         # ==================== 通用架构参数 ====================
-        self.hid_dim = 16  # 隐藏层维度（从32增加到64以提升模型容量）
+        self.hid_dim = 32  # 隐藏层维度（从32增加到64以提升模型容量）
         self.MLP_layer = 1
         self.AF = 'ReLU'  # 激活函数：'ReLU', 'LeakyReLU', 'PReLU','GELU'
 
@@ -274,7 +274,7 @@ class ArchConfig:
 
         # ==================== SAGE特定参数 ====================
         self.SAGE_layer = 2  # SAGE层数（从2增加到3，保持一致）
-        self.aggr = 'mean'     # 聚合方式：'mean', 'max', 'add'
+        self.aggr = 'max'     # 聚合方式：'mean', 'max', 'add'
         # inter_drop已在GAT中定义，这里共用
 
         # ==================== LSTM特定参数 ====================

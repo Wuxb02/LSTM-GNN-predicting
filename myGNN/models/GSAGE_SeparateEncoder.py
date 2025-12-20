@@ -27,6 +27,9 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import SAGEConv
 
+# 导入 RevIN 层
+from .layers import RevIN
+
 
 def get_norm_layer(norm_type, dim):
     """规范化层选择"""
@@ -497,6 +500,26 @@ class GSAGE_SeparateEncoder(nn.Module):
             MLP_layers_out.append(nn.Linear(self.hid_dim, self.out_dim))
             self.MLP_layers_out = nn.Sequential(*MLP_layers_out)
 
+        # ==================== RevIN 层（新增）⭐ ====================
+        # 用于处理非平稳时间序列的分布偏移问题
+        self.use_revin = getattr(arch_arg, 'use_revin', False)
+        if self.use_revin:
+            # 仅对动态特征应用 RevIN（静态特征不随时间变化）
+            # dynamic_dim: 动态气象要素数量
+            # temporal_dim: 时间编码维度（sin/cos）
+            revin_num_features = self.dynamic_dim + self.temporal_dim
+            self.revin_layer = RevIN(
+                num_features=revin_num_features,
+                eps=getattr(arch_arg, 'revin_eps', 1e-5),
+                affine=getattr(arch_arg, 'revin_affine', True),
+                subtract_last=getattr(arch_arg, 'revin_subtract_last', False)
+            )
+            print(f"✓ RevIN 已启用 (特征数={revin_num_features}, "
+                  f"affine={self.revin_layer.affine}, "
+                  f"subtract_last={self.revin_layer.subtract_last})")
+        else:
+            self.revin_layer = None
+
     def forward(self, x, edge_index, edge_attr=None, return_cross_attention=False):
         """
         前向传播
@@ -522,6 +545,11 @@ class GSAGE_SeparateEncoder(nn.Module):
         # 输入格式: [静态特征(12), 动态特征(12), 时间编码(4)]
         static_features = x[:, 0, :self.static_dim]  # [total_nodes, static_dim]
         dynamic_features = x[:, :, self.static_dim:]  # [total_nodes, hist_len, dynamic_dim+temporal_dim]
+
+        # ==================== 新增: RevIN 标准化 ⭐ ====================
+        if self.use_revin:
+            # 仅对动态特征应用 RevIN（时间编码也包含在内）
+            dynamic_features = self.revin_layer.normalize(dynamic_features)
 
         # ==================== 2. 节点嵌入增强 ====================
         if self.use_node_embedding:
@@ -603,6 +631,39 @@ class GSAGE_SeparateEncoder(nn.Module):
             x = torch.cat(outputs, dim=1)
         else:
             x = self.MLP_layers_out(x)
+
+        # ==================== 新增: RevIN 反标准化 ⭐ ====================
+        if self.use_revin:
+            # 计算目标特征在动态特征中的索引
+            target_global_idx = self.config.target_feature_idx
+            dynamic_indices = self.config.dynamic_feature_indices
+
+            if target_global_idx in dynamic_indices:
+                target_idx_in_dynamic = dynamic_indices.index(target_global_idx)
+            else:
+                # 如果目标不在动态特征中，使用第一个动态特征的统计量
+                print(f"警告: 目标特征索引 {target_global_idx} 不在动态特征列表中，"
+                      f"使用第一个动态特征的统计量")
+                target_idx_in_dynamic = 0
+
+            # 扩展输出维度: [total_nodes, pred_len] → [total_nodes, pred_len, 1]
+            output_expanded = x.unsqueeze(-1)
+
+            # 提取目标特征的统计量
+            mean_target = self.revin_layer.mean[:, :, target_idx_in_dynamic:target_idx_in_dynamic+1]
+            stdev_target = self.revin_layer.stdev[:, :, target_idx_in_dynamic:target_idx_in_dynamic+1]
+
+            # 反仿射变换（如果启用）
+            if self.revin_layer.affine:
+                gamma_target = self.revin_layer.gamma[target_idx_in_dynamic]
+                beta_target = self.revin_layer.beta[target_idx_in_dynamic]
+                output_expanded = (output_expanded - beta_target) / gamma_target
+
+            # 反标准化: output * stdev + mean
+            output_expanded = output_expanded * stdev_target + mean_target
+
+            # 压缩回原始形状: [total_nodes, pred_len, 1] → [total_nodes, pred_len]
+            x = output_expanded.squeeze(-1)
 
         # 返回结果
         if return_cross_attention:
