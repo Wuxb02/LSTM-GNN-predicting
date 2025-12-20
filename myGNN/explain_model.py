@@ -29,7 +29,7 @@ from myGNN.explainer.visualize_explainer import generate_all_visualizations
 # ============================================================================
 
 # 模型路径(必需)
-MODEL_PATH = r'.\checkpoints\GAT_SeparateEncoder_20251216_125133\best_model.pth'
+MODEL_PATH = r'.\checkpoints\GAT_SeparateEncoder_MAE2.21\best_model.pth'
 
 # 分析参数
 NUM_SAMPLES = 50           # 分析样本数量

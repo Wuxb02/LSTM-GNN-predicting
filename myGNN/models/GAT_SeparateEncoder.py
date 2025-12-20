@@ -28,6 +28,9 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GATv2Conv
 
+# 导入 RevIN 层
+from .layers import RevIN
+
 
 def get_norm_layer(norm_type, dim):
     """规范化层选择"""
@@ -58,24 +61,25 @@ def whichAF(AF):
 class LightweightStaticEncoder(nn.Module):
     """
     轻量级静态特征编码器 (优化版)
-    
+
     保留 [N, 12, dim] 的输出结构以支持特征级注意力，
     但移除笨重的 MLP，改用 "特征值 * 可学习基向量" 的方式。
-    
+
     参数量极低，极难过拟合，且完全保留可解释性。
     """
+
     def __init__(self, num_features, output_dim):
         super(LightweightStaticEncoder, self).__init__()
         self.num_features = num_features
         self.output_dim = output_dim
-        
+
         # 定义基向量 (Basis Vectors)
         # 形状: [1, 12, output_dim]
         # 这里的每一个向量代表一种特征的"语义身份"
         self.feature_embeddings = nn.Parameter(
             torch.randn(1, num_features, output_dim) * 0.02
         )
-        
+
         # 可选：如果你担心简单的乘法表达能力不够，可以加一个共享的层归一化
         self.norm = nn.LayerNorm(output_dim)
 
@@ -83,25 +87,25 @@ class LightweightStaticEncoder(nn.Module):
         """
         Args:
             x: [batch_size, num_features]  (原始静态特征值，标量)
-            
+
         Returns:
             [batch_size, num_features, output_dim] (特征Token序列)
         """
         batch_size = x.shape[0]
-        
+
         # 1. 扩展输入维度
         # x: [batch, 12] -> [batch, 12, 1]
         x_expanded = x.unsqueeze(-1)
-        
+
         # 2. 广播乘法 (Scaling)
         # 将标量特征值 乘以 对应的特征身份向量
         # [batch, 12, 1] * [1, 12, dim] -> [batch, 12, dim]
         # 广播机制会自动处理维度匹配
         tokens = x_expanded * self.feature_embeddings
-        
+
         # 3. 归一化 (让训练更稳定)
         tokens = self.norm(tokens)
-        
+
         return tokens
 
 
@@ -219,7 +223,8 @@ class DynamicEncoder(nn.Module):
 
         # LSTM编码
         out, _ = self.lstm(x)
-        out = out[-1]  # 取最后时间步 [num_nodes, hidden_dim] 或 [num_nodes, 2*hidden_dim]
+        # 取最后时间步 [num_nodes, hidden_dim] 或 [num_nodes, 2*hidden_dim]
+        out = out[-1]
 
         # 双向投影
         if self.bidirectional:
@@ -367,7 +372,6 @@ class CrossAttentionFusionV2(nn.Module):
             return x
 
 
-
 class GAT_SeparateEncoder(nn.Module):
     """
     GAT + 分离式编码器 模型 (优化版 v3.0)
@@ -480,7 +484,8 @@ class GAT_SeparateEncoder(nn.Module):
                     add_self_loops=True, share_weights=False
                 )
             )
-            GAT_layers.append(nn.Linear(self.heads * self.hid_dim, self.hid_dim))
+            GAT_layers.append(
+                nn.Linear(self.heads * self.hid_dim, self.hid_dim))
             GAT_layers.append(AF)
 
             norm_layer = get_norm_layer(arch_arg.norm_type, self.hid_dim)
@@ -493,7 +498,8 @@ class GAT_SeparateEncoder(nn.Module):
 
         # ==================== 🔥 新增2: 残差连接控制 ====================
         # 在GAT输入（融合输出）和GAT输出之间添加跳跃连接
-        self.use_skip_connection = getattr(arch_arg, 'use_skip_connection', True)
+        self.use_skip_connection = getattr(
+            arch_arg, 'use_skip_connection', True)
 
         # ==================== 解码器 ====================
         self.use_recurrent_decoder = getattr(
@@ -556,6 +562,26 @@ class GAT_SeparateEncoder(nn.Module):
             MLP_layers_out.append(nn.Linear(self.hid_dim, self.out_dim))
             self.MLP_layers_out = nn.Sequential(*MLP_layers_out)
 
+        # ==================== RevIN 层（新增）⭐ ====================
+        # 用于处理非平稳时间序列的分布偏移问题
+        self.use_revin = getattr(arch_arg, 'use_revin', False)
+        if self.use_revin:
+            # 仅对动态特征应用 RevIN（静态特征不随时间变化）
+            # dynamic_dim: 动态气象要素数量
+            # temporal_dim: 时间编码维度（sin/cos）
+            revin_num_features = self.dynamic_dim + self.temporal_dim
+            self.revin_layer = RevIN(
+                num_features=revin_num_features,
+                eps=getattr(arch_arg, 'revin_eps', 1e-5),
+                affine=getattr(arch_arg, 'revin_affine', True),
+                subtract_last=getattr(arch_arg, 'revin_subtract_last', False)
+            )
+            print(f"✓ RevIN 已启用 (特征数={revin_num_features}, "
+                  f"affine={self.revin_layer.affine}, "
+                  f"subtract_last={self.revin_layer.subtract_last})")
+        else:
+            self.revin_layer = None
+
     def forward(self, x, edge_index, edge_attr=None, return_cross_attention=False):
         """
         前向传播
@@ -579,8 +605,16 @@ class GAT_SeparateEncoder(nn.Module):
         # ==================== 1. 特征分离 ====================
         # 从组合输入中分离静态和动态部分
         # 输入格式: [静态特征(12), 动态特征(12), 时间编码(4)]
-        static_features = x[:, 0, :self.static_dim]  # [total_nodes, static_dim]
-        dynamic_features = x[:, :, self.static_dim:]  # [total_nodes, hist_len, dynamic_dim+temporal_dim]
+        # [total_nodes, static_dim]
+        static_features = x[:, 0, :self.static_dim]
+        # [total_nodes, hist_len, dynamic_dim+temporal_dim]
+        dynamic_features = x[:, :, self.static_dim:]
+
+        # ==================== 新增: RevIN 标准化 ⭐ ====================
+        if self.use_revin:
+            # 仅对动态特征应用 RevIN（时间编码也包含在内）
+            # dynamic_features: [total_nodes, hist_len, dynamic_dim+temporal_dim]
+            dynamic_features = self.revin_layer.normalize(dynamic_features)
 
         # ==================== 2. 节点嵌入增强 ⭐ ====================
         if self.use_node_embedding:
@@ -594,10 +628,12 @@ class GAT_SeparateEncoder(nn.Module):
 
             # 将可学习的节点嵌入与静态特征拼接
             # [total_nodes, static_dim + node_emb_dim]
-            static_features = torch.cat([static_features, node_emb_expanded], dim=-1)
+            static_features = torch.cat(
+                [static_features, node_emb_expanded], dim=-1)
 
         # ==================== 3. 动态编码 ====================
-        dynamic_emb = self.dynamic_encoder(dynamic_features)  # [total_nodes, hid_dim//2]
+        dynamic_emb = self.dynamic_encoder(
+            dynamic_features)  # [total_nodes, hid_dim//2]
 
         # ==================== 4. 特征级交叉注意力融合 (v3.0) ⭐ ====================
         # 动态特征作为Query，查询最相关的静态地理信息
@@ -608,7 +644,8 @@ class GAT_SeparateEncoder(nn.Module):
             )
             # cross_attn_weights: [N, num_heads, num_static_features]
         else:
-            fusion_out = self.fusion(static_features, dynamic_emb, return_attention=False)
+            fusion_out = self.fusion(
+                static_features, dynamic_emb, return_attention=False)
 
         # ==================== 5. GAT图卷积（带残差连接）⭐ ====================
         x = fusion_out  # 保存融合输出，用于后续残差连接
@@ -660,6 +697,43 @@ class GAT_SeparateEncoder(nn.Module):
             x = torch.cat(outputs, dim=1)
         else:
             x = self.MLP_layers_out(x)
+
+        # ==================== 新增: RevIN 反标准化 ⭐ ====================
+        if self.use_revin:
+            # 计算目标特征在动态特征中的索引
+            # config.target_feature_idx 是全局索引（0-27）
+            # 需要映射到动态特征中的索引（0-9）
+            target_global_idx = self.config.target_feature_idx
+            dynamic_indices = self.config.dynamic_feature_indices
+
+            if target_global_idx in dynamic_indices:
+                target_idx_in_dynamic = dynamic_indices.index(target_global_idx)
+            else:
+                # 如果目标不在动态特征中，使用第一个动态特征的统计量
+                print(f"警告: 目标特征索引 {target_global_idx} 不在动态特征列表中，"
+                      f"使用第一个动态特征的统计量")
+                target_idx_in_dynamic = 0
+
+            # 扩展输出维度: [total_nodes, pred_len] → [total_nodes, pred_len, 1]
+            output_expanded = x.unsqueeze(-1)
+
+            # 提取目标特征的统计量
+            # mean/stdev 形状: [total_nodes, 1, dynamic_dim+temporal_dim]
+            # 选择第 target_idx_in_dynamic 个特征: [total_nodes, 1, 1]
+            mean_target = self.revin_layer.mean[:, :, target_idx_in_dynamic:target_idx_in_dynamic+1]
+            stdev_target = self.revin_layer.stdev[:, :, target_idx_in_dynamic:target_idx_in_dynamic+1]
+
+            # 反仿射变换（如果启用）
+            if self.revin_layer.affine:
+                gamma_target = self.revin_layer.gamma[target_idx_in_dynamic]
+                beta_target = self.revin_layer.beta[target_idx_in_dynamic]
+                output_expanded = (output_expanded - beta_target) / gamma_target
+
+            # 反标准化: output * stdev + mean
+            output_expanded = output_expanded * stdev_target + mean_target
+
+            # 压缩回原始形状: [total_nodes, pred_len, 1] → [total_nodes, pred_len]
+            x = output_expanded.squeeze(-1)
 
         # 返回结果
         if return_cross_attention:
@@ -739,7 +813,8 @@ if __name__ == "__main__":
     out = model(x, edge_index)
     print(f"  Output shape: {out.shape}")
     print(f"  Expected shape: [{batch_size}, {config.pred_len}]")
-    assert out.shape == (batch_size, config.pred_len), f"Shape mismatch: {out.shape}"
+    assert out.shape == (
+        batch_size, config.pred_len), f"Shape mismatch: {out.shape}"
     print("  [OK] Shape validation passed")
 
     # Test 2: Forward pass with attention weights
@@ -748,7 +823,8 @@ if __name__ == "__main__":
     print(f"  Output shape: {out.shape}")
     print(f"  Attention weights shape: {attn_weights.shape}")
     num_static_features = config.static_encoded_dim + arch_arg.node_emb_dim
-    expected_attn_shape = (batch_size, arch_arg.fusion_num_heads, num_static_features)
+    expected_attn_shape = (
+        batch_size, arch_arg.fusion_num_heads, num_static_features)
     print(f"  Expected attention shape: {expected_attn_shape}")
     assert attn_weights.shape == expected_attn_shape, \
         f"Attention shape mismatch: {attn_weights.shape}"
@@ -757,12 +833,14 @@ if __name__ == "__main__":
     # Verify attention weights are normalized (sum to 1)
     attn_sum = attn_weights[0, 0, :].sum().item()
     print(f"  Attention weights sum (should be ~1.0): {attn_sum:.4f}")
-    assert abs(attn_sum - 1.0) < 0.01, f"Attention weights not normalized: {attn_sum}"
+    assert abs(
+        attn_sum - 1.0) < 0.01, f"Attention weights not normalized: {attn_sum}"
     print("  [OK] Attention weights normalization passed")
 
     # Parameter statistics
     total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    trainable_params = sum(p.numel()
+                           for p in model.parameters() if p.requires_grad)
     print(f"\nParameter Statistics:")
     print(f"  - Total parameters: {total_params:,}")
     print(f"  - Trainable parameters: {trainable_params:,}")

@@ -116,14 +116,14 @@ class Config:
         # 0-2: x, y, height (地理位置)
         # 10-18: BH, BHstd, SCD, PLA, λp, λb, POI, POW, POV (城市形态)
         # 24-25: VegHeight_mean, VegHeight_std (植被高度)
-        self.static_feature_indices = [0, 1, 2, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+        self.static_feature_indices = [0, 1, 2, 10, 11, 12, 16, 17, 18, 24]
         # self.static_feature_indices = [0, 1, 2, 10, 11, 12, 13, 14, 15, 16, 17, 18, 24, 25]
 
         # 动态特征索引（逐日数据，随时间变化）
         # 3-9: tmin, tmax, tave, pre, prs, rh, win (气象要素)
         # 19-23: NDVI, surface_pressure, surface_solar_radiation, u_wind, v_wind
         # 注意：doy(26)和month(27)将单独转换为sin/cos编码
-        self.dynamic_feature_indices = [ 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23]
+        self.dynamic_feature_indices = [ 3, 4, 5, 6, 7, 8, 9, 21, 22, 23]
 
         # 静态特征编码器配置
         self.static_encoded_dim = 4          # 静态特征编码后的维度
@@ -143,7 +143,7 @@ class Config:
         # 支持的模型:
         # 基础模型: 'GAT_LSTM', 'GSAGE_LSTM', 'LSTM', 'GAT_Pure' (纯GAT，无LSTM)
         # 分离式编码: 'GAT_SeparateEncoder', 'GSAGE_SeparateEncoder' (静态/动态分离)
-        self.exp_model = 'GAT_Pure'
+        self.exp_model = 'GAT_LSTM'
 
         # ==================== 图结构配置 ====================
         # 图类型选择：
@@ -175,7 +175,7 @@ class Config:
         self.batch_size = 32      # 批次大小（从128改为32以平衡内存和收敛速度）
         self.epochs = 500
         self.lr = 0.001
-        self.weight_decay = 1e-4  # 从1e-4增大到1e-3以增强正则化
+        self.weight_decay = 1e-3  # 从1e-4增大到1e-3以增强正则化
         self.early_stop = 50      # 早停耐心值
 
         # 优化器配置
@@ -305,6 +305,13 @@ class ArchConfig:
 
         # 🔥 改进3: GAT残差连接参数
         self.use_skip_connection = True     # 是否在GAT前后添加残差连接
+
+        # ==================== RevIN 配置（新增）⭐ ====================
+        # RevIN (Reversible Instance Normalization) 用于处理非平稳时间序列
+        self.use_revin = False              # 是否启用 RevIN
+        self.revin_affine = True            # 可学习的 gamma 和 beta 参数
+        self.revin_subtract_last = False    # False=使用均值，True=使用最后值
+        self.revin_eps = 1e-5               # 数值稳定性常数
 
 
 def create_config(loss_type=None, **kwargs):
@@ -448,6 +455,17 @@ def print_config(config, arch_config):
         print(f"  解码器Dropout: {arch_config.decoder_dropout}")
         print(f"  上下文注入: {getattr(arch_config, 'decoder_use_context', True)}")
         print(f"  前置MLP层数: {getattr(arch_config, 'decoder_mlp_layers', 1)}")
+
+    # RevIN 配置
+    if getattr(arch_config, 'use_revin', False):
+        print(f"\n【RevIN 配置】⭐")
+        print(f"  RevIN 状态: 启用")
+        print(f"  可学习仿射变换: {arch_config.revin_affine}")
+        print(f"  使用最后值基准: {arch_config.revin_subtract_last}")
+        print(f"  数值稳定性常数: {arch_config.revin_eps}")
+    else:
+        print(f"\n【RevIN 配置】")
+        print(f"  RevIN 状态: 禁用")
 
     print("\n【图结构】")
     print(f"  图类型: {config.graph_type}")
