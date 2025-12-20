@@ -45,8 +45,60 @@ class LossConfig:
         self.c_over = 1.5                   # 误报权重系数(高估的惩罚),可较小
         self.c_default_high = 1.0           # 正确预报高温的权重
         self.delta = 0.1                    # 小偏置,缓冲max(0,⋅)计算
-        self.trend_weight = 0.5             # 趋势权重 
+        self.trend_weight = 0.5             # 趋势权重
 
+
+def get_feature_indices_for_graph(config):
+    """
+    获取用于图构建的特征索引列表（与数据加载保持一致）
+
+    使用场景:
+    - spatial_similarity 图构建需要与模型输入特征保持一致
+    - 确保边权重计算基于模型实际使用的特征
+
+    Args:
+        config: Config对象
+
+    Returns:
+        list: 特征索引列表，例如 [0,1,2,...,25] 或 [0,1,2,3,4,10,11,21,22,23]
+
+    逻辑:
+        1. 如果启用特征分离 (use_feature_separation=True):
+           合并静态和动态特征索引，去重并排序
+        2. 如果指定了feature_indices:
+           使用指定的特征索引
+        3. 否则:
+           使用默认的0-25（移除doy和month）
+
+    注意:
+        - 返回的索引用于从原始数据 [time, stations, 28] 中提取特征
+        - 不包括时间编码（doy_sin/cos, month_sin/cos），因为时间编码在数据加载时动态生成
+        - 索引26-27（doy, month）应被排除，因为它们会被转换为sin/cos
+    """
+    if config.use_feature_separation:
+        # 分离模式：合并静态和动态特征索引
+        static_indices = config.static_feature_indices
+        dynamic_indices = config.dynamic_feature_indices
+        combined = sorted(list(set(static_indices + dynamic_indices)))
+
+        print(f"  [特征选择] 分离模式:")
+        print(f"    静态特征索引: {static_indices} ({len(static_indices)}个)")
+        print(f"    动态特征索引: {dynamic_indices} ({len(dynamic_indices)}个)")
+        print(f"    合并后: {combined} (共{len(combined)}个)")
+
+        return combined
+
+    elif config.feature_indices is not None:
+        # 使用指定的特征索引
+        indices = list(config.feature_indices)
+        print(f"  [特征选择] 使用指定特征: {indices} ({len(indices)}个)")
+        return indices
+
+    else:
+        # 默认：使用0-25（移除doy和month）
+        indices = list(range(26))
+        print(f"  [特征选择] 使用默认特征: 0-25 (26个)")
+        return indices
 
 
 class Config:
@@ -124,6 +176,37 @@ class Config:
         # 19-23: NDVI, surface_pressure, surface_solar_radiation, u_wind, v_wind
         # 注意：doy(26)和month(27)将单独转换为sin/cos编码
         self.dynamic_feature_indices = [ 3, 4, 5, 6, 7, 8, 9, 21, 22, 23]
+
+        # 配置验证
+        if self.use_feature_separation:
+            # 检查是否有重复索引
+            combined = self.static_feature_indices + self.dynamic_feature_indices
+            if len(combined) != len(set(combined)):
+                raise ValueError(
+                    f"静态和动态特征索引有重复！\n"
+                    f"静态: {self.static_feature_indices}\n"
+                    f"动态: {self.dynamic_feature_indices}"
+                )
+
+            # 检查是否包含时间特征（26-27应被排除）
+            if 26 in combined or 27 in combined:
+                raise ValueError(
+                    f"特征索引不应包含时间特征26(doy)和27(month)！\n"
+                    f"当前静态: {self.static_feature_indices}\n"
+                    f"当前动态: {self.dynamic_feature_indices}\n"
+                    f"时间特征将自动转换为sin/cos编码"
+                )
+
+            # 如果同时设置了feature_indices，发出警告
+            if self.feature_indices is not None:
+                import warnings
+                warnings.warn(
+                    f"检测到同时设置了 use_feature_separation=True 和 feature_indices！\n"
+                    f"分离模式将忽略 feature_indices，使用 static + dynamic 索引。\n"
+                    f"当前feature_indices: {self.feature_indices}",
+                    UserWarning
+                )
+
 
         # 静态特征编码器配置
         self.static_encoded_dim = 4          # 静态特征编码后的维度
@@ -255,7 +338,7 @@ class ArchConfig:
 
     def __init__(self):
         # ==================== 通用架构参数 ====================
-        self.hid_dim = 32  # 隐藏层维度（从32增加到64以提升模型容量）
+        self.hid_dim = 16  # 隐藏层维度（从32增加到64以提升模型容量）
         self.MLP_layer = 1
         self.AF = 'ReLU'  # 激活函数：'ReLU', 'LeakyReLU', 'PReLU','GELU'
 
@@ -296,7 +379,7 @@ class ArchConfig:
 
         # 🔥 改进1: 交叉注意力融合参数
         # 废弃原fusion_type参数，现在统一使用CrossAttentionFusion
-        self.fusion_num_heads = 2           # 交叉注意力头数（必须能整除hid_dim）
+        self.fusion_num_heads = 1           # 交叉注意力头数（必须能整除hid_dim）
         self.fusion_use_pre_ln = True       # 是否使用Pre-LN（推荐True）
 
         # 🔥 改进2: 可学习节点嵌入参数
@@ -309,7 +392,7 @@ class ArchConfig:
         # ==================== RevIN 配置（新增）⭐ ====================
         # RevIN (Reversible Instance Normalization) 用于处理非平稳时间序列
         self.use_revin = False              # 是否启用 RevIN
-        self.revin_affine = True            # 可学习的 gamma 和 beta 参数
+        self.revin_affine = False            # 可学习的 gamma 和 beta 参数
         self.revin_subtract_last = False    # False=使用均值，True=使用最后值
         self.revin_eps = 1e-5               # 数值稳定性常数
 
@@ -478,6 +561,11 @@ def print_config(config, arch_config):
         print(f"  邻域相似性权重α: {config.spatial_sim_alpha}")
         print(f"  使用邻域相似性: {config.spatial_sim_use_neighborhood}")
         print(f"  初始空间邻居数: {config.spatial_sim_initial_neighbors}")
+
+        # 新增：显示图构建将使用的特征（与数据加载一致性检查）
+        graph_features = get_feature_indices_for_graph(config)
+        print(f"  图构建特征索引: {graph_features} (共{len(graph_features)}个)")
+
     elif config.graph_type == 'full':
         print(f"  全连接图: 所有节点互相连接")
 

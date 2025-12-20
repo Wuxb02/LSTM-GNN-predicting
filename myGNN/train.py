@@ -29,7 +29,7 @@ import matplotlib
 matplotlib.use('Agg')  # 无GUI环境下使用
 
 # 导入项目模块
-from config import create_config, print_config
+from config import create_config, print_config,get_feature_indices_for_graph
 from dataset import create_dataloaders
 from graph.distance_graph import create_graph_from_config
 from network_GNN import (get_model, get_optimizer, get_scheduler, train, val,
@@ -829,11 +829,21 @@ def main():
     if config.graph_type == 'spatial_similarity':
         print("  空间相似性图需要特征数据，先加载训练数据...")
         MetData_temp = np.load(config.MetData_fp)
-        # 使用配置中的特征维度，而非硬编码的19
-        num_features = 24  # 基础特征维度（0-23，移除了doy和month）
-        train_data_temp = MetData_temp[config.train_start:config.train_end, :, :num_features]
-        feature_data = train_data_temp.mean(axis=0)
+
+        # 使用辅助函数获取特征索引（与数据加载保持一致）
+
+        feature_indices = get_feature_indices_for_graph(config)
+
+        # 提取训练集对应特征
+        train_data_temp = MetData_temp[config.train_start:config.train_end, :, :]
+        train_data_temp = train_data_temp[:, :, feature_indices]
+
+        # 时间平均得到每个站点的特征向量
+        feature_data = train_data_temp.mean(axis=0)  # [num_stations, num_features]
+
         print(f"  ✓ 特征数据形状: {feature_data.shape}")
+        print(f"    (28个站点 × {len(feature_indices)}个特征)")
+
 
     graph = create_graph_from_config(config, feature_data=feature_data)
     print(f"✓ 图类型: {graph.edge_form}")
