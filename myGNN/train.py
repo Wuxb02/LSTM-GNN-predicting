@@ -824,7 +824,7 @@ def main():
     # ==================== 2. 构建图结构 ====================
     print("\n[2/7] 构建图结构...")
 
-    # 如果使用空间相似性图，需要先加载数据准备特征
+    # 如果使用空间相似性图或correlation_climate图，需要先加载数据准备特征
     feature_data = None
     if config.graph_type == 'spatial_similarity':
         print("  空间相似性图需要特征数据，先加载训练数据...")
@@ -844,12 +844,28 @@ def main():
         print(f"  ✓ 特征数据形状: {feature_data.shape}")
         print(f"    (28个站点 × {len(feature_indices)}个特征)")
 
+    elif config.graph_type == 'correlation_climate':
+        print("  correlation_climate图需要完整气象数据...")
+        feature_data = np.load(config.MetData_fp)  # [total_len, num_stations, num_features]
+        print(f"  ✓ 气象数据形状: {feature_data.shape}")
+        print(f"    (将使用训练集 [{config.train_start}, {config.train_end}) 计算相关性和统计量)")
 
     graph = create_graph_from_config(config, feature_data=feature_data)
-    print(f"✓ 图类型: {graph.edge_form}")
-    print(f"  节点数: {graph.node_num}")
-    print(f"  边数: {graph.edge_index.shape[1]}")
-    print(f"  使用边属性: {graph.use_edge_attr}")
+
+    # 打印图信息(兼容不同的图对象格式)
+    if hasattr(graph, 'edge_form'):
+        # 旧格式的图对象
+        print(f"✓ 图类型: {graph.edge_form}")
+        print(f"  节点数: {graph.node_num}")
+        print(f"  边数: {graph.edge_index.shape[1]}")
+        print(f"  使用边属性: {graph.use_edge_attr}")
+    else:
+        # PyG Data对象(correlation_climate返回的格式)
+        print(f"✓ 图类型: {config.graph_type}")
+        print(f"  节点数: {graph.num_nodes}")
+        print(f"  边数: {graph.num_edges}")
+        edge_attr_status = "是" if graph.edge_attr is not None else "否"
+        print(f"  使用边属性: {edge_attr_status}")
 
     # ==================== 3. 加载数据 ====================
     print("\n[3/7] 加载数据...")

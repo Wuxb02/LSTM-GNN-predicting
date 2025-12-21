@@ -53,7 +53,7 @@ except ImportError as e:
 # 修改这里的配置来可视化不同的模型
 
 # 模型checkpoint目录(必填)
-CHECKPOINT_DIR = r'.\checkpoints\GAT_SeparateEncoder_20251216_025649'
+CHECKPOINT_DIR = r'.\checkpoints\LSTM_20251220_151358'
 
 # 输出目录('auto'表示自动在checkpoint下创建visualizations/)
 OUTPUT_DIR = 'auto'

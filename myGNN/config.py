@@ -226,25 +226,30 @@ class Config:
         # 支持的模型:
         # 基础模型: 'GAT_LSTM', 'GSAGE_LSTM', 'LSTM', 'GAT_Pure' (纯GAT，无LSTM)
         # 分离式编码: 'GAT_SeparateEncoder', 'GSAGE_SeparateEncoder' (静态/动态分离)
-        self.exp_model = 'GSAGE_SeparateEncoder'
+        self.exp_model = 'GAT_SeparateEncoder'
 
         # ==================== 图结构配置 ====================
         # 图类型选择：
         # - 'inv_dis': K近邻图 + 逆距离权重（默认，适合距离相关的空间预测）
         # - 'spatial_similarity': 基于空间相似性的图（GeoGAT方法，适合特征相似性建模）
+        # - 'correlation_climate': 基于气温相关性拓扑和气候统计量的图 ⭐新增
         # - 'knn': K近邻图（无权重，简单快速）
         # - 'full': 全连接图（计算密集，适合小规模节点）
-        self.graph_type = 'spatial_similarity'  # 默认使用逆距离权重图
+        self.graph_type = 'correlation_climate'  # 默认使用逆距离权重图
 
         # K近邻图参数（用于 'inv_dis' 和 'knn' 类型）
         self.top_neighbors = 5
-        self.use_edge_attr = True  # 是否使用边属性（逆距离权重）
+        self.use_edge_attr = False  # 是否使用边属性（逆距离权重）
 
         # 空间相似性图参数（用于 'spatial_similarity' 类型）
-        self.spatial_sim_top_k = 4              # 选择最相似的K个邻居（论文推荐10），一共构建多少边
+        self.spatial_sim_top_k = 5              # 选择最相似的K个邻居（论文推荐10），一共构建多少边
         self.spatial_sim_alpha = 1.0             # 邻域相似性权重系数（论文默认1.0）
         self.spatial_sim_use_neighborhood = True  # 是否使用邻域相似性
         self.spatial_sim_initial_neighbors = 3   # 用于计算邻域相似性的初始空间邻居数，判断地理背景
+
+        # === correlation_climate图专用参数 ===
+        self.correlation_top_k = 10              # 相关性邻居数量K
+        self.correlation_climate_alpha = 1.0     # 邻域权重系数α
 
         # ==================== 可视化配置 ====================
         # 训练后自动生成可视化图表（需要visualize_results.py）
@@ -351,13 +356,13 @@ class ArchConfig:
 
         # ==================== GAT特定参数 ====================
         self.GAT_layer = 1  # GAT层数（从2增加到3以增强图学习能力）
-        self.heads = 2         # 注意力头数
+        self.heads = 1         # 注意力头数
         self.intra_drop = 0.5  # GAT层内Dropout
         self.inter_drop = 0.5  # GNN层间Dropout
 
         # ==================== SAGE特定参数 ====================
-        self.SAGE_layer = 2  # SAGE层数（从2增加到3，保持一致）
-        self.aggr = 'max'     # 聚合方式：'mean', 'max', 'add'
+        self.SAGE_layer = 1  # SAGE层数（从2增加到3，保持一致）
+        self.aggr = 'mean'     # 聚合方式：'mean', 'max', 'add'
         # inter_drop已在GAT中定义，这里共用
 
         # ==================== LSTM特定参数 ====================
@@ -565,6 +570,12 @@ def print_config(config, arch_config):
         # 新增：显示图构建将使用的特征（与数据加载一致性检查）
         graph_features = get_feature_indices_for_graph(config)
         print(f"  图构建特征索引: {graph_features} (共{len(graph_features)}个)")
+
+    elif config.graph_type == 'correlation_climate':
+        print(f"  相关性邻居数量K: {config.correlation_top_k}")
+        print(f"  邻域权重系数α: {config.correlation_climate_alpha}")
+        print(f"  动态拓扑: 基于训练集tmax气温相关性")
+        print(f"  静态气质: 26特征×4统计量(均值/标准差/最大/最小)")
 
     elif config.graph_type == 'full':
         print(f"  全连接图: 所有节点互相连接")

@@ -19,6 +19,7 @@ myGNN图结构构建模块
 import numpy as np
 import torch
 from scipy.spatial import distance_matrix
+from torch_geometric.data import Data
 
 
 class Graph_full:
@@ -348,6 +349,316 @@ class Graph_spatial_similarity:
         print(f"  平均度数: {self.edge_index.shape[1] / self.node_num:.2f}")
 
 
+class Graph_correlation_climate:
+    """
+    基于气温相关性拓扑和气候统计量的图构建
+
+    核心理念: 动态拓扑 + 静态气质
+    - 拓扑: 使用去季节化气温相关性定义邻居
+    - 权重: 使用气候统计量(均值/标准差/最大/最小)计算GeoGAT权重
+
+    参考:
+    - 动态拓扑: 皮尔逊相关系数 + 去季节化处理
+    - 静态气质: 4维统计量(均值/标准差/最大值/最小值)
+    - 权重计算: GeoGAT框架(局部相似性 + 邻域相似性)
+    """
+
+    def __init__(self, MetData, station_info, config):
+        """
+        初始化correlation_climate图构建器
+
+        Args:
+            MetData: [total_len, num_stations, num_features] 气象数据
+            station_info: [num_stations, 4] 站点信息
+            config: Config对象
+        """
+        self.MetData = MetData
+        self.config = config
+        self.num_stations = MetData.shape[1]
+
+        # 提取站点信息
+        self.lon = station_info[:, 0]
+        self.lat = station_info[:, 1]
+
+        # 图参数
+        self.top_k = min(config.correlation_top_k, self.num_stations - 1)
+        self.alpha = config.correlation_climate_alpha
+        self.edge_form = f'corr_climate_k{self.top_k}_alpha{self.alpha}'
+        self.use_edge_attr = True
+
+    def _deseasonalize(self, tmax_series):
+        """
+        去季节化处理: 按月份减去多年平均值
+
+        Args:
+            tmax_series: [train_len, num_stations]
+        Returns:
+            residuals: [train_len, num_stations] 残差序列
+        """
+        train_len, num_stations = tmax_series.shape
+
+        # 验证数据量
+        if train_len < 30:
+            raise ValueError(
+                f"训练集数据不足: {train_len}天 < 30天最低要求"
+            )
+
+        # 提取月份信息(从原始数据的索引27)
+        train_start = self.config.train_start
+        train_end = self.config.train_end
+        month_feature = self.MetData[train_start:train_end, :, 27]
+
+        # 初始化残差数组
+        residuals = np.zeros_like(tmax_series)
+
+        # 按月份去季节化
+        for month in range(1, 13):
+            month_mask = (month_feature[:, 0] == month)
+            month_count = np.sum(month_mask)
+
+            if month_count < 3:
+                # 样本不足,保持原值
+                residuals[month_mask] = tmax_series[month_mask]
+                print(f"  警告: {month}月样本数{month_count}<3,跳过去季节化")
+            else:
+                # 减去月均值
+                monthly_mean = np.mean(tmax_series[month_mask], axis=0)
+                residuals[month_mask] = tmax_series[month_mask] - monthly_mean
+
+        return residuals
+
+    def _compute_correlation_neighbors(self, tmax_train):
+        """
+        计算相关性邻居集合
+
+        Args:
+            tmax_train: [train_len, num_stations]
+        Returns:
+            corr_matrix: [num_stations, num_stations] 相关系数矩阵
+            neighbor_indices: [num_stations, K] Top-K邻居索引
+            neighbor_correlations: [num_stations, K] 对应相关系数
+        """
+        num_stations = tmax_train.shape[1]
+        K = self.top_k
+
+        # 计算相关系数矩阵
+        corr_matrix = np.corrcoef(tmax_train.T)
+        corr_matrix = np.nan_to_num(corr_matrix, nan=0.0)
+        np.fill_diagonal(corr_matrix, -1)  # 避免自环
+
+        # 选择Top-K (基于绝对值)
+        neighbor_indices = np.zeros((num_stations, K), dtype=int)
+        neighbor_correlations = np.zeros((num_stations, K))
+
+        for i in range(num_stations):
+            abs_corr = np.abs(corr_matrix[i])
+            top_k_idx = np.argsort(abs_corr)[::-1][:K]
+            neighbor_indices[i] = top_k_idx
+            neighbor_correlations[i] = corr_matrix[i, top_k_idx]
+
+        return corr_matrix, neighbor_indices, neighbor_correlations
+
+    def _compute_climate_statistics(self, train_data):
+        """
+        计算静态气候特征均值
+
+        从静态特征中排除x(0)和y(1)坐标,仅使用其他静态特征计算均值
+
+        Args:
+            train_data: [train_len, num_stations, num_features]
+        Returns:
+            stats: [num_stations, num_static_features] 静态特征均值 (排除x和y后)
+        """
+        # 获取静态特征索引
+        static_indices = self.config.static_feature_indices
+
+        # 动态过滤: 排除x(0)和y(1)
+        filtered_indices = [idx for idx in static_indices if idx not in [0, 1]]
+
+        # 提取过滤后的静态特征
+        static_features = train_data[:, :, filtered_indices]
+
+        # 仅计算均值
+        mean_vals = np.mean(static_features, axis=0)  # [num_stations, num_filtered_static]
+
+        print(f"    原始静态特征索引: {static_indices}")
+        print(f"    过滤后特征索引 (排除x和y): {filtered_indices}")
+        print(f"    使用 {len(filtered_indices)} 个静态特征计算均值")
+        print(f"    特征维度: {mean_vals.shape}")
+
+        return mean_vals
+
+    def _compute_local_similarity(self, stats):
+        """
+        计算局部相似性 S_l(i,j)
+
+        使用标准化特征的高斯核: S_l(i,j) = exp(-Σ_v [(z_v(i) - z_v(j))]² / num_features)
+
+        Args:
+            stats: [num_stations, num_features]
+        Returns:
+            S_l: [num_stations, num_stations]
+        """
+        num_stations, num_features = stats.shape
+
+        # 标准化特征 (Z-score标准化)
+        feature_mean = np.mean(stats, axis=0)
+        feature_std = np.std(stats, axis=0)
+        feature_std[feature_std == 0] = 1.0  # 避免除零
+
+        standardized_stats = (stats - feature_mean) / feature_std
+
+        # 计算欧氏距离平方
+        diff = standardized_stats[:, None, :] - standardized_stats[None, :, :]
+        squared_dist = np.sum(diff ** 2, axis=2) / num_features
+
+        # 高斯核
+        S_l = np.exp(-squared_dist)
+
+        return S_l
+
+    def _compute_neighborhood_similarity(self, stats, neighbor_indices):
+        """
+        计算邻域相似性 S_n(N(i), N(j))
+
+        基于标准化特征的相关性邻居邻域均值计算相似性
+
+        Args:
+            stats: [num_stations, num_features]
+            neighbor_indices: [num_stations, K]
+        Returns:
+            S_n: [num_stations, num_stations]
+        """
+        num_stations, K = neighbor_indices.shape
+        num_features = stats.shape[1]
+
+        if K == 0:
+            return np.zeros((num_stations, num_stations))
+
+        # 先标准化特征 (与局部相似性保持一致)
+        feature_mean = np.mean(stats, axis=0)
+        feature_std = np.std(stats, axis=0)
+        feature_std[feature_std == 0] = 1.0
+
+        standardized_stats = (stats - feature_mean) / feature_std
+
+        # 计算每站邻域的均值 (在标准化空间)
+        neighborhood_means = np.zeros((num_stations, num_features))
+        for i in range(num_stations):
+            neighbors = neighbor_indices[i]
+            neighborhood_means[i] = np.mean(standardized_stats[neighbors], axis=0)
+
+        # 计算邻域间的相似性 (已在标准化空间,无需再标准化)
+        diff = neighborhood_means[:, None, :] - neighborhood_means[None, :, :]
+        squared_dist = np.sum(diff ** 2, axis=2) / num_features
+        S_n = np.exp(-squared_dist)
+
+        return S_n
+
+    def _build_graph(self, neighbor_indices, weights):
+        """
+        构建最终图结构
+
+        Args:
+            neighbor_indices: [num_stations, K]
+            weights: [num_stations, K]
+        Returns:
+            edge_index: [2, num_edges]
+            edge_attr: [num_edges, 1]
+        """
+        edge_list = []
+        weight_list = []
+
+        num_stations, K = neighbor_indices.shape
+
+        for src in range(num_stations):
+            for k in range(K):
+                dst = neighbor_indices[src, k]
+                weight = weights[src, k]
+                edge_list.append([src, dst])
+                weight_list.append(weight)
+
+        edge_index = torch.tensor(edge_list, dtype=torch.long).T
+        edge_attr = torch.tensor(weight_list, dtype=torch.float32).unsqueeze(1)
+
+        # 权重归一化到[0,1]
+        if edge_attr.max() > edge_attr.min():
+            edge_attr = (edge_attr - edge_attr.min()) / (edge_attr.max() - edge_attr.min())
+        else:
+            edge_attr = torch.ones_like(edge_attr)
+
+        return edge_index, edge_attr
+
+    def build_graph(self):
+        """
+        主构建流程
+
+        Returns:
+            graph: PyG Data对象
+        """
+        print(f"\n=== Building correlation_climate graph ===")
+
+        # 1. 提取训练集数据
+        train_data = self.MetData[self.config.train_start:self.config.train_end]
+        tmax_train = train_data[:, :, self.config.target_feature_idx]
+        print(f"  Training range: [{self.config.train_start}, {self.config.train_end})")
+        print(f"  Target feature: index {self.config.target_feature_idx} (tmax)")
+
+        # 2. 去季节化
+        print(f"  Step 1: Deseasonalization...")
+        tmax_deseasonalized = self._deseasonalize(tmax_train)
+
+        # 3. 计算相关性邻居
+        print(f"  Step 2: Computing temperature correlation neighbors (K={self.top_k})...")
+        corr_matrix, neighbor_indices, neighbor_corrs = \
+            self._compute_correlation_neighbors(tmax_deseasonalized)
+
+        mean_abs_corr = np.mean(np.abs(neighbor_corrs))
+        print(f"    Average |correlation|: {mean_abs_corr:.3f}")
+
+        # 4. 计算静态特征均值
+        print(f"  Step 3: Computing static feature means (excluding x and y)...")
+        climate_stats = self._compute_climate_statistics(train_data)
+
+        # 5. 计算局部相似性
+        print(f"  Step 4: Computing local similarity...")
+        S_l = self._compute_local_similarity(climate_stats)
+
+        # 6. 计算邻域相似性
+        print(f"  Step 5: Computing neighborhood similarity (alpha={self.alpha})...")
+        S_n = self._compute_neighborhood_similarity(climate_stats, neighbor_indices)
+
+        # 7. 融合权重
+        combined_similarity = S_l + self.alpha * S_n
+
+        # 8. 提取邻居对应的权重
+        num_stations, K = neighbor_indices.shape
+        weights = np.zeros((num_stations, K))
+        for i in range(num_stations):
+            for k in range(K):
+                j = neighbor_indices[i, k]
+                weights[i, k] = combined_similarity[i, j]
+
+        # 9. 构建图
+        print(f"  Step 6: Building graph structure...")
+        edge_index, edge_attr = self._build_graph(neighbor_indices, weights)
+
+        # 10. 创建PyG Data对象
+        graph = Data(
+            edge_index=edge_index,
+            edge_attr=edge_attr,
+            num_nodes=self.num_stations
+        )
+
+        print(f"  [OK] Graph construction completed:")
+        print(f"    - Number of nodes: {graph.num_nodes}")
+        print(f"    - Number of edges: {graph.num_edges}")
+        print(f"    - Average degree: {graph.num_edges / graph.num_nodes:.2f}")
+        print(f"    - Edge weight range: [{edge_attr.min():.3f}, {edge_attr.max():.3f}]")
+
+        return graph
+
+
 # ==================== 便捷加载函数 ====================
 
 
@@ -436,7 +747,9 @@ def create_graph_from_config(config, feature_data=None):
 
     Args:
         config: 配置对象（需包含graph_type及相关参数）
-        feature_data: 特征数据 [num_stations, num_features]（仅spatial_similarity类型需要）
+        feature_data: 特征数据
+            - spatial_similarity类型: [num_stations, num_features]
+            - correlation_climate类型: [total_len, num_stations, num_features]
 
     Returns:
         graph: 图对象
@@ -444,6 +757,7 @@ def create_graph_from_config(config, feature_data=None):
     支持的图类型:
         - 'inv_dis': K近邻图 + 逆距离权重
         - 'spatial_similarity': 基于空间相似性的图（需要feature_data）
+        - 'correlation_climate': 基于气温相关性拓扑和气候统计量的图（需要feature_data）
         - 'knn': K近邻图（无权重）
         - 'full': 全连接图
     """
@@ -487,10 +801,26 @@ def create_graph_from_config(config, feature_data=None):
         graph = Graph_full(config.node_num)
         print(f"✓ 创建全连接图: {config.node_num}个节点")
 
+    elif config.graph_type == 'correlation_climate':
+        # 气温相关性拓扑 + 气候统计量图
+        if feature_data is None:
+            raise ValueError(
+                "correlation_climate图需要feature_data参数!\n"
+                "请提供气象数据，例如:\n"
+                "  MetData = np.load(config.MetData_fp)\n"
+                "  graph = create_graph_from_config(config, MetData)"
+            )
+        graph_builder = Graph_correlation_climate(
+            MetData=feature_data,
+            station_info=station_info,
+            config=config
+        )
+        graph = graph_builder.build_graph()
+
     else:
         raise ValueError(
             f"未知的图类型: {config.graph_type}\n"
-            f"支持的类型: 'inv_dis', 'spatial_similarity', 'knn', 'full'"
+            f"支持的类型: 'inv_dis', 'spatial_similarity', 'correlation_climate', 'knn', 'full'"
         )
 
     return graph
