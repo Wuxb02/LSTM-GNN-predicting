@@ -51,7 +51,7 @@ def generate_virtual_data():
 
 
     # GCN (紫色虚线+菱形): 误差介于GAT和GSAGE之间
-    errors_myGNN = np.array([2.1528,
+    errors_IGNN = np.array([2.1528,
 2.7651,
 3.0125,
 3.1232,
@@ -62,7 +62,7 @@ def generate_virtual_data():
         'GAT': errors_gat,
         'LSTM': errors_lstm,
         'GAT-LSTM': errors_gatlstm,
-        'myGNN': errors_myGNN
+        'IGNN': errors_IGNN
     }
 
     return lead_times, errors_dict
@@ -87,7 +87,7 @@ def plot_lead_time_comparison(lead_times, errors_dict, save_path):
                 'markersize': 8, 'color': '#ff7f0e'},
         'GAT-LSTM': {'linestyle': '--', 'marker': 'D', 'linewidth': 2.5,
                      'markersize': 7, 'color': '#9467bd'},
-        'myGNN': {'linestyle': '-.', 'marker': 'o', 'linewidth': 2.5,
+        'IGNN': {'linestyle': '-.', 'marker': 'o', 'linewidth': 2.5,
                   'markersize': 8, 'color': '#d62728'}
     }
 
