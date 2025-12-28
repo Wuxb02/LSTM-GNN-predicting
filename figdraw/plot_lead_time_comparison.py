@@ -25,38 +25,44 @@ def generate_virtual_data():
         lead_times: Lead time数组 [1, 2, 3, 4, 5, 6] 小时
         errors_dict: 包含5个模型误差数据的字典
     """
-    lead_times = np.array([1, 2, 3, 4, 5, 6])
+    lead_times = np.array([1, 2, 3, 4, 5])
 
     # 基于图表估计的数值生成虚拟数据
     # LSTM (蓝色实线+叉): 误差最大，增长最快
-    errors_lstm = np.array([0.65, 0.88, 1.02, 1.15, 1.24, 1.32])
+    errors_lstm = np.array([2.2614,
+2.8292,
+3.0667,
+3.1881,
+3.2881])
 
     # GAT (橙色虚线+方块): 误差次之
-    errors_gat = np.array([0.62, 0.83, 0.97, 1.10, 1.19, 1.27])
+    errors_gat = np.array([2.7457,
+2.9111,
+3.2125,
+3.4331,
+3.6299])
 
     # GSAGE (绿色点划线+圆): 误差再次
-    errors_gsage = np.array([0.58, 0.78, 0.92, 1.04, 1.13, 1.21])
+    errors_gatlstm = np.array([2.2072,
+2.7648,
+3.0598,
+3.1952,
+3.2668])
 
-    # Hpyer-GSAGE (红色点划线+圆): 误差最小
-    errors_hpyer_gsage = np.array([0.55, 0.74, 0.87, 0.99, 1.08, 1.16])
 
     # GCN (紫色虚线+菱形): 误差介于GAT和GSAGE之间
-    errors_gcn = np.array([0.60, 0.80, 0.94, 1.07, 1.16, 1.24])
+    errors_myGNN = np.array([2.1528,
+2.7651,
+3.0125,
+3.1232,
+3.1859])
 
-    # 添加少量随机噪声使曲线更真实
-    noise_scale = 0.01
-    errors_lstm += np.random.normal(0, noise_scale, len(lead_times))
-    errors_gat += np.random.normal(0, noise_scale, len(lead_times))
-    errors_gsage += np.random.normal(0, noise_scale, len(lead_times))
-    errors_hpyer_gsage += np.random.normal(0, noise_scale, len(lead_times))
-    errors_gcn += np.random.normal(0, noise_scale, len(lead_times))
 
     errors_dict = {
-        'LSTM': errors_lstm,
         'GAT': errors_gat,
-        'GAT-LSTM': errors_gcn,
-        'XGBoost': errors_gsage,
-        'myGNN': errors_hpyer_gsage
+        'LSTM': errors_lstm,
+        'GAT-LSTM': errors_gatlstm,
+        'myGNN': errors_myGNN
     }
 
     return lead_times, errors_dict
@@ -75,14 +81,12 @@ def plot_lead_time_comparison(lead_times, errors_dict, save_path):
 
     # 定义线型和标记
     line_styles = {
-        'LSTM': {'linestyle': '-', 'marker': 'x', 'linewidth': 2.5,
+        'GAT': {'linestyle': '-', 'marker': 'x', 'linewidth': 2.5,
                  'markersize': 10, 'color': '#1f77b4'},
-        'GAT': {'linestyle': '--', 'marker': 's', 'linewidth': 2.5,
+        'LSTM': {'linestyle': '--', 'marker': 's', 'linewidth': 2.5,
                 'markersize': 8, 'color': '#ff7f0e'},
         'GAT-LSTM': {'linestyle': '--', 'marker': 'D', 'linewidth': 2.5,
                      'markersize': 7, 'color': '#9467bd'},
-        'XGBoost': {'linestyle': '-.', 'marker': 'o', 'linewidth': 2.5,
-                    'markersize': 8, 'color': '#2ca02c'},
         'myGNN': {'linestyle': '-.', 'marker': 'o', 'linewidth': 2.5,
                   'markersize': 8, 'color': '#d62728'}
     }
@@ -104,12 +108,12 @@ def plot_lead_time_comparison(lead_times, errors_dict, save_path):
     fontsize = 16
     # 设置坐标轴
     ax.set_xlabel('Lead time (days)', fontsize=fontsize)
-    ax.set_ylabel('MAE (°C)', fontsize=fontsize)
+    ax.set_ylabel('RMSE (°C)', fontsize=fontsize)
 
     # 设置刻度
-    ax.set_xticks([1, 2, 3, 4, 5, 6])
-    ax.set_ylim(0.5, 1.4)
-    ax.set_yticks(np.arange(0.5, 1.5, 0.2))
+    ax.set_xticks([1, 2, 3, 4, 5])
+    # ax.set_ylim(0.5, 1.4)
+    # ax.set_yticks(np.arange(0.5, 1.5, 0.2))
 
     # 设置刻度字体大小
     ax.tick_params(axis='both', labelsize=fontsize)
@@ -118,7 +122,7 @@ def plot_lead_time_comparison(lead_times, errors_dict, save_path):
     ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.5)
 
     # 添加图例
-    legend = ax.legend(fontsize=fontsize, loc='upper left', frameon=True,
+    legend = ax.legend(fontsize=fontsize, loc='lower right', frameon=True,
                       fancybox=False)
 
 
