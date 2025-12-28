@@ -54,3 +54,4 @@ nni/
 origin_gnn/
 data/*
 analysis_results/
+figdraw/result/
