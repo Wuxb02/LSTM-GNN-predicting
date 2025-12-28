@@ -34,7 +34,7 @@ from graph.distance_graph import create_graph_from_config
 DPI = 300
 
 # 字体大小
-FONTSIZE = 14
+FONTSIZE = 16
 
 # 是否尝试使用Mapbox WMTS底图(True)或Natural Earth离线底图(False)
 USE_WMTS_BASEMAP = True
@@ -62,11 +62,11 @@ class PlotConfig:
 
         # === 图结构配置 ===
         self.graph_type = 'inv_dis'     # 图类型: inv_dis/knn/spatial_similarity/full
-        self.top_neighbors = 10          # K近邻数量
+        self.top_neighbors = 5          # K近邻数量
 
         # === 可视化配置 ===
         self.use_basemap = True          # 是否使用地理底图
-        self.basemap_style = 'simple'    # 底图样式: 'mapbox'/'natural_earth'/'simple'/'minimal'
+        self.basemap_style = 'mapbox'    # 底图样式: 'mapbox'/'natural_earth'/'simple'/'minimal'
         self.basemap_alpha = 0.6         # 底图透明度(0-1)
 
         # === 站点样式 ===
@@ -217,7 +217,7 @@ def plot_graph_structure(plot_config: PlotConfig):
          lat_min - margin_lat, lat_max + margin_lat],
         crs=ccrs.PlateCarree()
     )
-
+    print(plot_config.use_basemap)
     # 4. 添加地理底图(可选)
     if plot_config.use_basemap:
         print("\n[4/5] 添加地理底图...")
@@ -1055,19 +1055,19 @@ def main():
     plot_config.top_neighbors = 5            # K近邻数量
 
     # 底图配置
-    plot_config.use_basemap = False          # 是否使用底图
-    plot_config.basemap_style = 'simple'     # 底图样式: mapbox/natural_earth/simple/minimal
-    plot_config.basemap_alpha = 1            # 底图透明度
+    plot_config.use_basemap = True          # 是否使用底图
+    plot_config.basemap_style = 'mapbox'     # 底图样式: mapbox/natural_earth/simple/minimal
+    plot_config.basemap_alpha = 0.8            # 底图透明度
 
     # 站点样式
-    plot_config.station_color = 'lightgrey'  # 站点颜色
+    plot_config.station_color = '#FFFFFF'  # 站点颜色
     plot_config.station_size = 500           # 站点大小
     plot_config.show_station_labels = True   # 显示站点编号
 
     # 边样式
-    plot_config.edge_color = 'gray'          # 边颜色
-    plot_config.edge_linewidth = 1.0         # 边线宽
-    plot_config.edge_alpha = 0.5             # 边透明度
+    plot_config.edge_color = '#333333'          # 边颜色
+    plot_config.edge_linewidth = 1.5         # 边线宽
+    plot_config.edge_alpha = 0.8             # 边透明度
 
     # 网格线
     plot_config.show_gridlines = True        # 显示网格线
