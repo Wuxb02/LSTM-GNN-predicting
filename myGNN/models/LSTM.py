@@ -58,7 +58,7 @@ class LSTM_direct(nn.Module):
         self.lstm = nn.LSTM(
             input_size=self.hid_dim,
             hidden_size=self.hid_dim,
-            num_layers=self.num_layers,
+            num_layers=self.num_layers*3,
             dropout=arch_arg.lstm_dropout if self.num_layers > 1 else 0,
             bidirectional=self.lstm_bidirectional,
             batch_first=False  # 期望输入 [seq_len, batch, features]

@@ -29,7 +29,7 @@ from myGNN.explainer.visualize_explainer import generate_all_visualizations
 # ============================================================================
 
 # 模型路径(必需)
-MODEL_PATH = r'.\checkpoints\GAT_SeparateEncoder_MAE2.21\best_model.pth'
+MODEL_PATH = r'.\checkpoints\GAT_SeparateEncoder_20251221_235912\best_model.pth'
 
 # 分析参数
 NUM_SAMPLES = 50           # 分析样本数量
@@ -199,23 +199,77 @@ def main():
         else:
             print(f"  ⚠ 未找到站点信息文件: {station_info_path}")
 
-        # 定义特征名称(与config.py中的特征索引对应)
-        feature_names = [
-            'x', 'y', 'height',           # 0-2: 经纬度和海拔
-            'tmin', 'tmax', 'tave',       # 3-5: 温度
-            'pre', 'prs', 'rh', 'win',    # 6-9: 气象要素
-            'BH', 'BHstd',                # 10-11: 建筑高度
-            'SCD', 'PLA',                 # 12-13: 地表覆盖
-            'λp', 'λb',                   # 14-15: 天空开阔度
-            'POI', 'POW', 'POV',          # 16-18: 兴趣点/人口
-            'NDVI',                       # 19: 植被指数
-            'sfc_pres', 'sfc_solar',      # 20-21: ERA5
-            'u_wind', 'v_wind',           # 22-23: 风速分量
-            'VegHeight_mean', 'VegHeight_std',  # 24-25: 植被高度特征
-        ]
-        # 如果启用了时间编码,添加时间特征名称
-        if config.add_temporal_encoding:
-            feature_names.extend(['doy_sin', 'doy_cos', 'month_sin', 'month_cos'])
+        # ============ 动态生成特征名称（修复维度不匹配）============
+        print("\n  [特征名称生成]")
+        if config.use_feature_separation:
+            # --- 分离模式: 静态编码 + 动态特征 + 时间编码 ---
+            feature_names = []
+
+            # 1. 静态特征编码维度（从ArchConfig获取）
+            static_encoded_dim = getattr(arch_config, 'static_encoded_dim', 4)
+            for i in range(static_encoded_dim):
+                feature_names.append(f'static_enc_{i}')
+
+            # 2. 动态特征名称（根据config.dynamic_feature_indices）
+            all_feature_names = [
+                'x', 'y', 'height',           # 0-2
+                'tmin', 'tmax', 'tave',       # 3-5
+                'pre', 'prs', 'rh', 'win',    # 6-9
+                'BH', 'BHstd',                # 10-11
+                'SCD', 'PLA',                 # 12-13
+                'λp', 'λb',                   # 14-15
+                'POI', 'POW', 'POV',          # 16-18
+                'NDVI',                       # 19
+                'sfc_pres', 'sfc_solar',      # 20-21
+                'u_wind', 'v_wind',           # 22-23
+                'VegHeight_mean', 'VegHeight_std',  # 24-25
+            ]
+
+            # 根据动态特征索引提取名称
+            for idx in config.dynamic_feature_indices:
+                if idx < len(all_feature_names):
+                    feature_names.append(all_feature_names[idx])
+                else:
+                    feature_names.append(f'dynamic_{idx}')
+
+            # 3. 时间编码（如果启用）
+            if config.add_temporal_encoding:
+                feature_names.extend(['doy_sin', 'doy_cos', 'month_sin', 'month_cos'])
+
+            print(f"  ✓ 分离模式特征名称: {len(feature_names)}个")
+            print(f"    - 静态编码: {static_encoded_dim}维")
+            print(f"    - 动态特征: {len(config.dynamic_feature_indices)}个")
+            print(f"    - 时间编码: {'4维' if config.add_temporal_encoding else '未启用'}")
+
+        else:
+            # --- 原模式: 26基础特征 + 时间编码 ---
+            feature_names = [
+                'x', 'y', 'height',           # 0-2
+                'tmin', 'tmax', 'tave',       # 3-5
+                'pre', 'prs', 'rh', 'win',    # 6-9
+                'BH', 'BHstd',                # 10-11
+                'SCD', 'PLA',                 # 12-13
+                'λp', 'λb',                   # 14-15
+                'POI', 'POW', 'POV',          # 16-18
+                'NDVI',                       # 19
+                'sfc_pres', 'sfc_solar',      # 20-21
+                'u_wind', 'v_wind',           # 22-23
+                'VegHeight_mean', 'VegHeight_std',  # 24-25
+            ]
+
+            # 添加时间编码
+            if config.add_temporal_encoding:
+                feature_names.extend(['doy_sin', 'doy_cos', 'month_sin', 'month_cos'])
+
+            print(f"  ✓ 原模式特征名称: {len(feature_names)}个 (26基础 + 时间编码)")
+
+        # ============ 验证维度一致性 ============
+        expected_dim = config.in_dim
+        if len(feature_names) != expected_dim:
+            print(f"  ⚠️ WARNING: 特征名称数量({len(feature_names)}) != config.in_dim({expected_dim})")
+            print(f"     这可能导致可视化时维度不匹配！")
+        else:
+            print(f"  ✓ 特征维度验证通过: {len(feature_names)} == config.in_dim")
 
         # 获取气象数据路径(用于温度相关性分析)
         weather_data_path = Path(__file__).parent.parent / 'data' / 'real_weather_data_2010_2017.npy'

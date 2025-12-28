@@ -101,7 +101,7 @@ class GAT_LSTM(torch.nn.Module):
         self.lstm = nn.LSTM(
             input_size=self.hid_dim,
             hidden_size=self.hid_dim,
-            num_layers=arch_arg.lstm_num_layers,
+            num_layers=arch_arg.lstm_num_layers*2,
             dropout=arch_arg.lstm_dropout if arch_arg.lstm_num_layers > 1 else 0,
             bidirectional=arch_arg.lstm_bidirectional,
             batch_first=False

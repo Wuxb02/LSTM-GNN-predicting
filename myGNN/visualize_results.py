@@ -53,7 +53,7 @@ except ImportError as e:
 # 修改这里的配置来可视化不同的模型
 
 # 模型checkpoint目录(必填)
-CHECKPOINT_DIR = r'.\checkpoints\LSTM_20251220_151358'
+CHECKPOINT_DIR = r'.\checkpoints\GAT_SeparateEncoder_20251221_235912'
 
 # 输出目录('auto'表示自动在checkpoint下创建visualizations/)
 OUTPUT_DIR = 'auto'
@@ -482,7 +482,7 @@ class ResultVisualizer:
         if not BASEMAP_AVAILABLE:
             print(f"  ⚠ 跳过底图版本(依赖未安装): {save_path.name}")
             return
-        fontsize = 14
+        fontsize = 16
         # 创建cartopy地理坐标轴
         fig = plt.figure(figsize=(10, 10), dpi=DPI)
         ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
@@ -496,7 +496,7 @@ class ResultVisualizer:
             cmap='RdYlGn_r',
             edgecolors='black',
             linewidth=1.5,
-            alpha=0.85,
+            # alpha=0.85,
             vmin=np.percentile(metrics['rmse_per_station'], 5),
             vmax=np.percentile(metrics['rmse_per_station'], 95),
             zorder=5  # 确保散点在底图之上
@@ -519,14 +519,6 @@ class ResultVisualizer:
                        fontsize=fontsize, ha='center', va='center',
                        color='black', weight='bold', zorder=6)
 
-        # 设置地理范围（添加边距）
-        lon_min, lon_max = self.lon.min(), self.lon.max()
-        lat_min, lat_max = self.lat.min(), self.lat.max()
-        margin_lon = (lon_max - lon_min) * 0.10
-        margin_lat = (lat_max - lat_min) * 0.10
-        ax.set_extent([lon_min - margin_lon, lon_max + margin_lon,
-                      lat_min - margin_lat, lat_max + margin_lat],
-                     crs=ccrs.PlateCarree())
 
         # 添加底图
         basemap_loaded = False

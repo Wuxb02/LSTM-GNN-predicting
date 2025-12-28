@@ -36,16 +36,16 @@ class LossConfig:
 
     def __init__(self):
         # 损失函数类型选择（这是唯一需要修改的配置！）
-        self.loss_type = 'MSE'  # WeightedTrend
+        self.loss_type = 'WeightedTrend'  # WeightedTrend
 
         # 🔥 加权趋势MSE损失参数（改进版 - 温度加权 + 趋势约束）
         # 四个核心机制: 精确阈值定义 + 不对称惩罚 + 极端值加权 + 趋势约束
         self.alert_temp = 35.0              # 高温警戒阈值T_alert (°C)
         self.c_under = 4                    # 漏报权重系数(低估高温的惩罚),应较大
-        self.c_over = 1.5                   # 误报权重系数(高估的惩罚),可较小
+        self.c_over = 2                   # 误报权重系数(高估的惩罚),可较小
         self.c_default_high = 1.0           # 正确预报高温的权重
         self.delta = 0.1                    # 小偏置,缓冲max(0,⋅)计算
-        self.trend_weight = 0.5             # 趋势权重
+        self.trend_weight = 0.2             # 趋势权重
 
 
 def get_feature_indices_for_graph(config):
@@ -177,6 +177,14 @@ class Config:
         # 注意：doy(26)和month(27)将单独转换为sin/cos编码
         self.dynamic_feature_indices = [ 3, 4, 5, 6, 7, 8, 9, 21, 22, 23]
 
+        # 静态特征编码维度（分离模式专用）
+        # 说明: 启用特征分离后，静态特征将被编码压缩
+        #       - 静态特征10个 → 编码为static_encoded_dim维 (默认4维)
+        #       - 动态特征保留原维度 (默认10维)
+        #       - 最终输入维度 = static_encoded_dim + len(dynamic_feature_indices) + 4时间编码
+        #       - 示例: 4 + 10 + 4 = 18维
+        self.static_encoded_dim = 4
+
         # 配置验证
         if self.use_feature_separation:
             # 检查是否有重复索引
@@ -235,7 +243,7 @@ class Config:
         # - 'correlation_climate': 基于气温相关性拓扑和气候统计量的图 ⭐新增
         # - 'knn': K近邻图（无权重，简单快速）
         # - 'full': 全连接图（计算密集，适合小规模节点）
-        self.graph_type = 'correlation_climate'  # 默认使用逆距离权重图
+        self.graph_type = 'inv_dis'  # 默认使用逆距离权重图
 
         # K近邻图参数（用于 'inv_dis' 和 'knn' 类型）
         self.top_neighbors = 5
@@ -377,7 +385,7 @@ class ArchConfig:
         self.decoder_num_layers = 1             # 解码器层数
         self.decoder_dropout = 0.5              # 解码器Dropout（仅num_layers > 1时生效）
         self.decoder_use_context = False         # 🔑解码时是否注入编码器上下文（跳跃连接）
-        self.decoder_mlp_layers = 0             # 🔑解码器前置MLP层数（0表示不使用）
+        self.decoder_mlp_layers = 1             # 🔑解码器前置MLP层数（0表示不使用）
 
         # ==================== 分离式编码器参数 (v2.0优化版) ====================
         # 用于 GAT_SeparateEncoder 模型
@@ -393,6 +401,11 @@ class ArchConfig:
 
         # 🔥 改进3: GAT残差连接参数
         self.use_skip_connection = True     # 是否在GAT前后添加残差连接
+
+        # 🔥 改进4: 静态特征编码维度
+        # 说明: 在特征分离模式下，静态特征通过编码器压缩为该维度
+        # 该值应与 Config.static_encoded_dim 保持一致
+        self.static_encoded_dim = 4         # 静态特征编码后的维度
 
         # ==================== RevIN 配置（新增）⭐ ====================
         # RevIN (Reversible Instance Normalization) 用于处理非平稳时间序列
