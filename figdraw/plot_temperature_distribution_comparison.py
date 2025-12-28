@@ -26,10 +26,10 @@ FOLDER1 = r'myGNN\checkpoints\GAT_SeparateEncoder_20251221_235912'
 FOLDER2 = r'myGNN\checkpoints\GAT_SeparateEncoder_ADA'
 
 # 模型1的显示名称（用于图例）
-MODEL1_NAME = 'MSE'
+MODEL1_NAME = 'MSE Loss'
 
 # 模型2的显示名称（用于图例）
-MODEL2_NAME = 'WeightedMSE'
+MODEL2_NAME = 'ETW Loss'
 
 # 指定站点ID（0-27），None表示所有站点平均
 STATION = None  # None 或 0-27之间的整数

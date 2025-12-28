@@ -321,8 +321,8 @@ def main():
                        'GAT_SeparateEncoder_20251221_235912'),
         model2_dir=str(script_dir / 'myGNN' / 'checkpoints' /
                        'GAT_SeparateEncoder_ADA'),
-        model1_name='MSE',
-        model2_name='WeightedMSE',
+        model1_name='MSE Loss',
+        model2_name='ETW Loss',
 
         # 数据范围
         day_start=150,

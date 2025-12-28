@@ -148,7 +148,7 @@ def main():
     # 设置路径
     result_dir = Path(__file__).parent / 'result'
     result_dir.mkdir(exist_ok=True)
-    save_path = result_dir / 'lead_time_comparison.png'
+    save_path = result_dir / 'comparison.png'
 
     # 生成虚拟数据
     print("正在生成虚拟数据...")
