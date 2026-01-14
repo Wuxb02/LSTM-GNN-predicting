@@ -557,16 +557,6 @@ def print_config(config, arch_config):
         print(f"  上下文注入: {getattr(arch_config, 'decoder_use_context', True)}")
         print(f"  前置MLP层数: {getattr(arch_config, 'decoder_mlp_layers', 1)}")
 
-    # RevIN 配置
-    if getattr(arch_config, 'use_revin', False):
-        print(f"\n【RevIN 配置】⭐")
-        print(f"  RevIN 状态: 启用")
-        print(f"  可学习仿射变换: {arch_config.revin_affine}")
-        print(f"  使用最后值基准: {arch_config.revin_subtract_last}")
-        print(f"  数值稳定性常数: {arch_config.revin_eps}")
-    else:
-        print(f"\n【RevIN 配置】")
-        print(f"  RevIN 状态: 禁用")
 
     print("\n【图结构】")
     print(f"  图类型: {config.graph_type}")
