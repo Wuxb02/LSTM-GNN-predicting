@@ -343,8 +343,9 @@ myGNN训练配置 - 完整记录
     # 4. 计算极端值监控指标
     print("\n正在计算极端值监控指标...")
 
-    # 定义温度阈值
-    high_thresholds = [28, 30, 35]  # 高温阈值: 轻度, 中度, 极端
+    # 定义温度阈值 - 使用config中的动态阈值
+    extreme_high_temp = config.loss_config.alert_temp  # 35.0或34.4(动态)
+    high_thresholds = [28, 30, extreme_high_temp]  # 高温阈值: 轻度, 中度, 极端
     low_thresholds = [0, -5, -10]   # 低温阈值: 轻度, 中度, 极端
 
     # 计算整体极端值指标
@@ -1128,8 +1129,9 @@ def main():
     print("极端值监控指标")
     print("=" * 80)
 
-    # 定义温度阈值
-    high_thresholds = [28, 30, 35]
+    # 定义温度阈值 - 使用config中的动态阈值
+    extreme_high_temp = config.loss_config.alert_temp  # 35.0或34.4(动态)
+    high_thresholds = [28, 30, extreme_high_temp]
     low_thresholds = [0, -5, -10]
 
     # 计算极端值指标
