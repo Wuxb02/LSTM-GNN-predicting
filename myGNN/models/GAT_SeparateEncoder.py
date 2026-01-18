@@ -80,8 +80,6 @@ class LightweightStaticEncoder(nn.Module):
             torch.randn(1, num_features, output_dim) * 0.02
         )
 
-        # 可选：如果你担心简单的乘法表达能力不够，可以加一个共享的层归一化
-        self.norm = nn.LayerNorm(output_dim)
 
     def forward(self, x):
         """
@@ -102,9 +100,6 @@ class LightweightStaticEncoder(nn.Module):
         # [batch, 12, 1] * [1, 12, dim] -> [batch, 12, dim]
         # 广播机制会自动处理维度匹配
         tokens = x_expanded * self.feature_embeddings
-
-        # 3. 归一化 (让训练更稳定)
-        tokens = self.norm(tokens)
 
         return tokens
 
@@ -267,16 +262,16 @@ class CrossAttentionFusionV2(nn.Module):
         self.use_pre_ln = use_pre_ln
 
         # 静态特征独立编码器
-        self.static_encoder = StaticFeatureEncoder(
-            num_features=num_static_features,
-            token_dim=output_dim,
-            dropout=dropout
-        )
-
-        # self.static_encoder = LightweightStaticEncoder(
+        # self.static_encoder = StaticFeatureEncoder(
         #     num_features=num_static_features,
-        #     output_dim=output_dim  # 确保这里维度和 dynamic_emb 投影后的维度一致
+        #     token_dim=output_dim,
+        #     dropout=dropout
         # )
+
+        self.static_encoder = LightweightStaticEncoder(
+            num_features=num_static_features,
+            output_dim=output_dim  # 确保这里维度和 dynamic_emb 投影后的维度一致
+        )
 
         # 动态特征投影
         self.dynamic_proj = nn.Linear(dynamic_dim, output_dim)

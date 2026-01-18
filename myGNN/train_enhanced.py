@@ -18,7 +18,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from losses import WeightedTrendMSELoss
+from myGNN.losses import WeightedTrendMSELoss
 
 
 def get_loss_function(config):

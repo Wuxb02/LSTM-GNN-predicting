@@ -13,12 +13,12 @@ from typing import Dict, Any, Optional, Tuple
 import sys
 
 # 添加父目录到路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from config import Config, ArchConfig, create_config
-from dataset import create_dataloaders
-from graph.distance_graph import create_graph_from_config
-from network_GNN import (
+from myGNN.config import Config, ArchConfig, create_config
+from myGNN.dataset import create_dataloaders
+from myGNN.graph.distance_graph import create_graph_from_config
+from myGNN.network_GNN import (
     get_model, get_optimizer, get_scheduler,
     train, val, get_metric
 )

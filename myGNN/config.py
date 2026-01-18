@@ -32,17 +32,40 @@ class LossConfig:
     支持的损失函数类型:
     - 'MSE': 标准均方误差（默认）
     - 'WeightedTrend': 加权趋势损失（论文方法，推荐用于夏季气温预测）
+
+    高温阈值计算方式:
+    1. **固定阈值模式** (use_dynamic_threshold=False, 默认):
+       - 使用预设的alert_temp值（如35.0°C）
+       - 适用于：已知高温标准的场景
+
+    2. **动态阈值模式** (use_dynamic_threshold=True):
+       - 自动计算训练集温度的90分位数作为阈值
+       - 适用于：不同地区/季节的自适应预测
+       - alert_temp会在训练开始时被动态更新
+
+    示例:
+        # 使用固定阈值
+        loss_config = LossConfig()
+        loss_config.use_dynamic_threshold = False
+        loss_config.alert_temp = 35.0
+
+        # 使用动态阈值（推荐用于探索性分析）
+        loss_config = LossConfig()
+        loss_config.use_dynamic_threshold = True
     """
 
     def __init__(self):
         # 损失函数类型选择（这是唯一需要修改的配置！）
         self.loss_type = 'WeightedTrend'  # WeightedTrend
 
+        # 🆕 高温阈值计算模式
+        self.use_dynamic_threshold = True  # True=使用90分位数, False=使用固定值
+
         # 🔥 加权趋势MSE损失参数（改进版 - 温度加权 + 趋势约束）
         # 四个核心机制: 精确阈值定义 + 不对称惩罚 + 极端值加权 + 趋势约束
-        self.alert_temp = 35.0              # 高温警戒阈值T_alert (°C)
+        self.alert_temp = 35.0              # 高温警戒阈值T_alert (°C) - 固定值或动态更新
         self.c_under = 4                    # 漏报权重系数(低估高温的惩罚),应较大
-        self.c_over = 2                   # 误报权重系数(高估的惩罚),可较小
+        self.c_over = 2                     # 误报权重系数(高估的惩罚),可较小
         self.c_default_high = 1.0           # 正确预报高温的权重
         self.delta = 0.1                    # 小偏置,缓冲max(0,⋅)计算
         self.trend_weight = 0.2             # 趋势权重
@@ -177,14 +200,6 @@ class Config:
         # 注意：doy(26)和month(27)将单独转换为sin/cos编码
         self.dynamic_feature_indices = [ 3, 4, 5, 6, 7, 8, 9, 21, 22, 23]
 
-        # 静态特征编码维度（分离模式专用）
-        # 说明: 启用特征分离后，静态特征将被编码压缩
-        #       - 静态特征10个 → 编码为static_encoded_dim维 (默认4维)
-        #       - 动态特征保留原维度 (默认10维)
-        #       - 最终输入维度 = static_encoded_dim + len(dynamic_feature_indices) + 4时间编码
-        #       - 示例: 4 + 10 + 4 = 18维
-        self.static_encoded_dim = 4
-
         # 配置验证
         if self.use_feature_separation:
             # 检查是否有重复索引
@@ -217,8 +232,8 @@ class Config:
 
 
         # 静态特征编码器配置
-        self.static_encoded_dim = 4          # 静态特征编码后的维度
-        self.static_encoder_type = 'mlp'     # 编码器类型: 'mlp', 'linear', 'none'
+        self.static_encoded_dim = len(self.static_feature_indices)          # 静态特征编码后的维度
+        self.static_encoder_type = 'none'     # 编码器类型: 'mlp', 'linear', 'none'
         self.static_encoder_layers = 1      # MLP编码器层数
         self.static_encoder_dropout = 0.5    # 编码器Dropout率
 

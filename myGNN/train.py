@@ -28,13 +28,18 @@ import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')  # 无GUI环境下使用
 
+# 添加项目根目录到Python路径
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 # 导入项目模块
-from config import create_config, print_config,get_feature_indices_for_graph
-from dataset import create_dataloaders
-from graph.distance_graph import create_graph_from_config
-from network_GNN import (get_model, get_optimizer, get_scheduler, train, val,
-                         test, get_metric, get_metrics_per_step, get_exp_info,
-                         get_extreme_metrics, get_extreme_metrics_per_step)
+from myGNN.config import create_config, print_config, get_feature_indices_for_graph
+from myGNN.dataset import create_dataloaders
+from myGNN.graph.distance_graph import create_graph_from_config
+from myGNN.network_GNN import (get_model, get_optimizer, get_scheduler, train, val,
+                               test, get_metric, get_metrics_per_step, get_exp_info,
+                               get_extreme_metrics, get_extreme_metrics_per_step)
 
 
 def setup_seed(seed):
@@ -874,6 +879,17 @@ def main():
     # 更新配置中的标准化参数
     config.ta_mean = stats['ta_mean']
     config.ta_std = stats['ta_std']
+    ta_p90 = stats['ta_p90']  # 🆕 获取90分位数
+
+    # 🆕 根据配置决定是否使用动态阈值
+    if config.loss_config.use_dynamic_threshold:
+        old_threshold = config.loss_config.alert_temp
+        config.loss_config.alert_temp = ta_p90
+        print(f"  训练集目标特征统计量: mean={config.ta_mean:.3f}, std={config.ta_std:.3f}")
+        print(f"  🔄 使用动态高温阈值: {old_threshold:.1f}°C → {ta_p90:.3f}°C (训练集90分位数)")
+    else:
+        print(f"  训练集目标特征统计量: mean={config.ta_mean:.3f}, std={config.ta_std:.3f}")
+        print(f"  📌 使用固定高温阈值: {config.loss_config.alert_temp:.1f}°C")
 
     print(f"✓ 数据加载完成")
     print(f"  训练批次数: {len(train_loader)}")

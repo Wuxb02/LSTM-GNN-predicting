@@ -457,11 +457,16 @@ def _create_dataloaders_original(config, graph, MetData):
     ta_mean = float(feature_mean[config.target_feature_idx])
     ta_std = float(feature_std[config.target_feature_idx])
 
+    # 🆕 计算90分位数（用于动态高温阈值）
+    target_feature_data = train_data[:, :, config.target_feature_idx]  # shape: [train_len, 28]
+    ta_p90 = float(np.percentile(target_feature_data, 90))  # 90分位数
+
     print(f"\n标准化参数计算完成:")
     print(f"  特征均值范围: [{feature_mean.min():.4f}, {feature_mean.max():.4f}]")
     print(f"  特征标准差范围: [{feature_std.min():.4f}, {feature_std.max():.4f}]")
     print(f"  目标特征(索引{config.target_feature_idx}) - "
           f"mean: {ta_mean:.4f}, std: {ta_std:.4f}")
+    print(f"  目标特征90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)")
 
     # 3. 标准化
     MetData[:, :, :26] = (MetData[:, :, :26] - feature_mean) / (feature_std + 1e-8)
@@ -471,6 +476,7 @@ def _create_dataloaders_original(config, graph, MetData):
     stats = {
         'ta_mean': ta_mean,
         'ta_std': ta_std,
+        'ta_p90': ta_p90,          # 🆕 添加90分位数
         'feature_mean': feature_mean,
         'feature_std': feature_std
     }
@@ -509,7 +515,7 @@ def _create_dataloaders_separated(config, graph, MetData):
     3. 按年份提取静态特征并使用MLP编码
     4. 创建数据集（支持跨年平均）
     """
-    from feature_encoder import StaticFeatureEncoder
+    from myGNN.feature_encoder import StaticFeatureEncoder
 
     print(f"\n✓ 启用特征分离模式（按年份提取静态特征）")
     print(f"  静态特征索引: {config.static_feature_indices} "
@@ -551,6 +557,12 @@ def _create_dataloaders_separated(config, graph, MetData):
     print(f"\n动态特征标准化:")
     print(f"  均值范围: [{dynamic_mean.min():.4f}, {dynamic_mean.max():.4f}]")
     print(f"  标准差范围: [{dynamic_std.min():.4f}, {dynamic_std.max():.4f}]")
+
+    # 🆕 在标准化之前计算目标特征的90分位数（用于动态高温阈值）
+    target_idx = config.target_feature_idx
+    target_feature_data = train_data[:, :, target_idx]  # 使用原始未标准化的数据
+    ta_p90 = float(np.percentile(target_feature_data, 90))
+    print(f"\n目标特征(索引{target_idx})90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)")
 
     # 3. 标准化整个数据集
     MetData[:, :, static_indices] = (
@@ -597,7 +609,7 @@ def _create_dataloaders_separated(config, graph, MetData):
           f"{sum(p.numel() for p in static_encoder.parameters()):,}")
 
     # 5. 计算目标特征统计量（用于损失反标准化）
-    target_idx = config.target_feature_idx
+    # 注意：ta_p90 已在标准化之前计算（见上方第561-565行）
     if target_idx in dynamic_indices:
         target_in_dynamic = dynamic_indices.index(target_idx)
         ta_mean = float(dynamic_mean[target_in_dynamic])
@@ -627,6 +639,7 @@ def _create_dataloaders_separated(config, graph, MetData):
     stats = {
         'ta_mean': ta_mean,
         'ta_std': ta_std,
+        'ta_p90': ta_p90,          # 🆕 添加90分位数
         'static_mean': static_mean,
         'static_std': static_std,
         'dynamic_mean': dynamic_mean,

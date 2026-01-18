@@ -21,9 +21,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from models import GAT_LSTM, GSAGE_LSTM, LSTM_direct, GAT_Pure
-from models.GAT_SeparateEncoder import GAT_SeparateEncoder
-from models.GSAGE_SeparateEncoder import GSAGE_SeparateEncoder
+from myGNN.models import GAT_LSTM, GSAGE_LSTM, LSTM_direct, GAT_Pure
+from myGNN.models.GAT_SeparateEncoder import GAT_SeparateEncoder
+from myGNN.models.GSAGE_SeparateEncoder import GSAGE_SeparateEncoder
 
 def get_optimizer(model, config):
     """

@@ -25,8 +25,8 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from pathlib import Path
 
-from config import create_config
-from graph.distance_graph import create_graph_from_config
+from myGNN.config import create_config
+from myGNN.graph.distance_graph import create_graph_from_config
 
 
 # ==================== 全局配置 ====================
