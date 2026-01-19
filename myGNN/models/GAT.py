@@ -112,70 +112,12 @@ class GAT_LSTM(torch.nn.Module):
 
         self.GAT_layers = nn.ModuleList(GAT_layers)
 
-        # 🔑 循环解码器（可选，用于多步预测）
-        self.use_recurrent_decoder = getattr(
-            arch_arg, 'use_recurrent_decoder', False
-        )
-        self.decoder_type = getattr(arch_arg, 'decoder_type', 'LSTM')
-        self.decoder_use_context = getattr(
-            arch_arg, 'decoder_use_context', False
-        )
-
-        if self.use_recurrent_decoder:
-            decoder_num_layers = getattr(arch_arg, 'decoder_num_layers', 1)
-            decoder_dropout = getattr(arch_arg, 'decoder_dropout', 0.1)
-            decoder_dropout = decoder_dropout if decoder_num_layers > 1 else 0
-            decoder_mlp_layers = getattr(arch_arg, 'decoder_mlp_layers', 0)
-
-            # 解码器输入维度
-            decoder_input_size = (
-                1 + self.hid_dim if self.decoder_use_context else 1
-            )
-
-            # 解码器前置MLP层（可选）
-            if decoder_mlp_layers > 0:
-                decoder_mlp = []
-                mlp_input_size = decoder_input_size
-                for _ in range(decoder_mlp_layers):
-                    decoder_mlp.append(nn.Linear(mlp_input_size, self.hid_dim))
-                    decoder_mlp.append(nn.ReLU())
-                    mlp_input_size = self.hid_dim
-                self.decoder_mlp = nn.Sequential(*decoder_mlp)
-                decoder_input_size = self.hid_dim
-            else:
-                self.decoder_mlp = None
-
-            # 解码器RNN
-            if self.decoder_type == 'LSTM':
-                self.decoder = nn.LSTM(
-                    input_size=decoder_input_size,
-                    hidden_size=self.hid_dim,
-                    num_layers=decoder_num_layers,
-                    dropout=decoder_dropout,
-                    batch_first=False
-                )
-            elif self.decoder_type == 'GRU':
-                self.decoder = nn.GRU(
-                    input_size=decoder_input_size,
-                    hidden_size=self.hid_dim,
-                    num_layers=decoder_num_layers,
-                    dropout=decoder_dropout,
-                    batch_first=False
-                )
-            else:
-                raise ValueError(
-                    f"未知的解码器类型: {self.decoder_type}，支持: 'LSTM', 'GRU'"
-                )
-
-            self.decoder_output_proj = nn.Linear(self.hid_dim, 1)
-            self.decoder_init_proj = nn.Linear(self.hid_dim, 1)
-        else:
-            # MLP输出层（原有方式）
-            for n in range(self.nMLP_layer):
-                MLP_layers_out.append(nn.Linear(self.hid_dim, self.hid_dim))
-                MLP_layers_out.append(AF)
-            MLP_layers_out.append(nn.Linear(self.hid_dim, self.out_dim))
-            self.MLP_layers_out = nn.Sequential(*MLP_layers_out)
+        # MLP输出层（原有方式）
+        for n in range(self.nMLP_layer):
+            MLP_layers_out.append(nn.Linear(self.hid_dim, self.hid_dim))
+            MLP_layers_out.append(AF)
+        MLP_layers_out.append(nn.Linear(self.hid_dim, self.out_dim))
+        self.MLP_layers_out = nn.Sequential(*MLP_layers_out)
 
     def forward(self, x, edge_index, edge_attr=None):
         """
@@ -217,43 +159,8 @@ class GAT_LSTM(torch.nn.Module):
                 x = self.GAT_layers[base_idx + j](x)
 
         # 5. 输出生成
-        if self.use_recurrent_decoder:
-            # 🔑 循环解码器：逐步生成预测序列
-            outputs = []
-            encoder_context = x  # [N, hid_dim]
-
-            num_layers = self.decoder.num_layers
-            if self.decoder_type == 'LSTM':
-                h_0 = x.unsqueeze(0).repeat(num_layers, 1, 1)
-                c_0 = torch.zeros_like(h_0)
-                hidden = (h_0, c_0)
-            else:
-                hidden = x.unsqueeze(0).repeat(num_layers, 1, 1)
-
-            prev_pred = self.decoder_init_proj(x)  # [N, 1]
-
-            for t in range(self.out_dim):
-                if self.decoder_use_context:
-                    decoder_input = torch.cat(
-                        [prev_pred, encoder_context], dim=1
-                    )
-                else:
-                    decoder_input = prev_pred
-
-                if self.decoder_mlp is not None:
-                    decoder_input = self.decoder_mlp(decoder_input)
-
-                decoder_input = decoder_input.unsqueeze(0)
-                decoder_output, hidden = self.decoder(decoder_input, hidden)
-
-                pred_t = self.decoder_output_proj(decoder_output.squeeze(0))
-                outputs.append(pred_t)
-                prev_pred = pred_t
-
-            x = torch.cat(outputs, dim=1)  # [N, pred_len]
-        else:
-            # MLP输出层（原有方式）
-            x = self.MLP_layers_out(x)  # [num_nodes, pred_len]
+        # MLP输出层（原有方式）
+        x = self.MLP_layers_out(x)  # [num_nodes, pred_len]
 
         return x
 

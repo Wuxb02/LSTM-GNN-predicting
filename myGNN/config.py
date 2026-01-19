@@ -387,15 +387,6 @@ class ArchConfig:
         self.lstm_dropout = 0.2         # LSTM层间Dropout（仅num_layers > 1时生效）
         self.lstm_bidirectional = False  # 是否使用双向LSTM
 
-        # ==================== 循环解码器参数 ====================
-        # 用于多步预测时替代MLP直接映射，逐步生成预测序列
-        self.use_recurrent_decoder = False      # 是否使用循环解码器
-        self.decoder_type = 'LSTM'              # 解码器类型: 'LSTM', 'GRU'
-        self.decoder_num_layers = 1             # 解码器层数
-        self.decoder_dropout = 0.2              # 解码器Dropout（仅num_layers > 1时生效）
-        self.decoder_use_context = False         # 🔑解码时是否注入编码器上下文（跳跃连接）
-        self.decoder_mlp_layers = 1             # 🔑解码器前置MLP层数（0表示不使用）
-
         # ==================== 分离式编码器参数 (v2.0优化版) ====================
         # 用于 GAT_SeparateEncoder 模型
 
@@ -537,15 +528,6 @@ def print_config(config, arch_config):
             f"  残差连接: {'启用' if arch_config.use_skip_connection else '禁用'}")
         if 'GSAGE' in config.exp_model:
             print(f"  SAGE聚合方式: {arch_config.aggr}")
-
-    # 循环解码器配置
-    if getattr(arch_config, 'use_recurrent_decoder', False):
-        print(f"\n【循环解码器配置】")
-        print(f"  解码器类型: {arch_config.decoder_type}")
-        print(f"  解码器层数: {arch_config.decoder_num_layers}")
-        print(f"  解码器Dropout: {arch_config.decoder_dropout}")
-        print(f"  上下文注入: {getattr(arch_config, 'decoder_use_context', True)}")
-        print(f"  前置MLP层数: {getattr(arch_config, 'decoder_mlp_layers', 1)}")
 
 
     print("\n【图结构】")

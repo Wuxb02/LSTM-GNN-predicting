@@ -42,21 +42,7 @@ class GATWrapper(nn.Module):
         # 保存维度信息
         self.hid_dim = gat_lstm_model.hid_dim
 
-        # 检查模型使用的解码器类型
-        self.use_recurrent_decoder = gat_lstm_model.use_recurrent_decoder
-
-        if self.use_recurrent_decoder:
-            # 循环解码器模式
-            self.decoder_type = gat_lstm_model.decoder_type
-            self.decoder_use_context = gat_lstm_model.decoder_use_context
-            self.decoder_mlp = gat_lstm_model.decoder_mlp if hasattr(gat_lstm_model, 'decoder_mlp') else None
-            self.decoder = gat_lstm_model.decoder
-            self.decoder_output_proj = gat_lstm_model.decoder_output_proj
-            self.decoder_init_proj = gat_lstm_model.decoder_init_proj
-            self.out_dim = gat_lstm_model.out_dim
-        else:
-            # MLP输出层模式
-            self.MLP_layers_out = gat_lstm_model.MLP_layers_out
+        self.MLP_layers_out = gat_lstm_model.MLP_layers_out
 
     def train(self, mode=True):
         """
@@ -66,11 +52,6 @@ class GATWrapper(nn.Module):
         只能在训练模式下进行反向传播
         """
         super().train(mode)
-        if self.use_recurrent_decoder:
-            # 强制解码器进入训练模式以支持反向传播
-            self.decoder.train(mode)
-            if self.decoder_mlp is not None:
-                self.decoder_mlp.train(mode)
         return self
 
     def eval(self):
@@ -81,21 +62,7 @@ class GATWrapper(nn.Module):
         以支持GNNExplainer的反向传播。这是一个特殊处理,
         仅在可解释性分析时使用。
         """
-        # 只将GAT层设为eval模式,但保持解码器为训练模式
-        if self.use_recurrent_decoder:
-            # GAT层可以eval
-            for layer in self.GAT_layers:
-                layer.eval()
-            # 但解码器必须保持训练模式以支持cuDNN反向传播
-            self.decoder.train()
-            if self.decoder_mlp is not None:
-                self.decoder_mlp.train()
-            # 投影层也设为eval
-            self.decoder_output_proj.eval()
-            self.decoder_init_proj.eval()
-        else:
-            # 标准eval模式
-            super().eval()
+        super().eval()
         return self
 
     def forward(self, x, edge_index, edge_attr=None, return_attention=False):
@@ -142,43 +109,8 @@ class GATWrapper(nn.Module):
                 x = self.GAT_layers[base_idx + j](x)
 
         # 输出生成(根据解码器类型)
-        if self.use_recurrent_decoder:
-            # 🔑 循环解码器：逐步生成预测序列
-            outputs = []
-            encoder_context = x  # [N, hid_dim]
-
-            num_layers = self.decoder.num_layers
-            if self.decoder_type == 'LSTM':
-                h_0 = x.unsqueeze(0).repeat(num_layers, 1, 1)
-                c_0 = torch.zeros_like(h_0)
-                hidden = (h_0, c_0)
-            else:
-                hidden = x.unsqueeze(0).repeat(num_layers, 1, 1)
-
-            prev_pred = self.decoder_init_proj(x)  # [N, 1]
-
-            for t in range(self.out_dim):
-                if self.decoder_use_context:
-                    decoder_input = torch.cat(
-                        [prev_pred, encoder_context], dim=1
-                    )
-                else:
-                    decoder_input = prev_pred
-
-                if self.decoder_mlp is not None:
-                    decoder_input = self.decoder_mlp(decoder_input)
-
-                decoder_input = decoder_input.unsqueeze(0)
-                decoder_output, hidden = self.decoder(decoder_input, hidden)
-
-                pred_t = self.decoder_output_proj(decoder_output.squeeze(0))
-                outputs.append(pred_t)
-                prev_pred = pred_t
-
-            x = torch.cat(outputs, dim=1)  # [N, pred_len]
-        else:
-            # MLP输出层(原有方式)
-            x = self.MLP_layers_out(x)
+        # MLP输出层(原有方式)
+        x = self.MLP_layers_out(x)
 
         if return_attention:
             return x, attention_weights_list
@@ -326,43 +258,15 @@ class GATSeparateEncoderWrapper(nn.Module):
         # 保存维度信息
         self.hid_dim = gat_separate_model.hid_dim
 
-        # 检查模型使用的解码器类型
-        self.use_recurrent_decoder = gat_separate_model.use_recurrent_decoder
-
-        if self.use_recurrent_decoder:
-            # 循环解码器模式
-            self.decoder_type = gat_separate_model.decoder_type
-            self.decoder_use_context = gat_separate_model.decoder_use_context
-            self.decoder_mlp = gat_separate_model.decoder_mlp if hasattr(gat_separate_model, 'decoder_mlp') else None
-            self.decoder = gat_separate_model.decoder
-            self.decoder_output_proj = gat_separate_model.decoder_output_proj
-            self.decoder_init_proj = gat_separate_model.decoder_init_proj
-            self.out_dim = gat_separate_model.out_dim
-        else:
-            # MLP输出层模式
-            self.MLP_layers_out = gat_separate_model.MLP_layers_out
+        self.MLP_layers_out = gat_separate_model.MLP_layers_out
 
     def train(self, mode=True):
         """覆盖train()方法"""
         super().train(mode)
-        if self.use_recurrent_decoder:
-            self.decoder.train(mode)
-            if self.decoder_mlp is not None:
-                self.decoder_mlp.train(mode)
         return self
 
     def eval(self):
-        """覆盖eval()方法,保持解码器训练模式以支持反向传播"""
-        if self.use_recurrent_decoder:
-            for layer in self.GAT_layers:
-                layer.eval()
-            self.decoder.train()
-            if self.decoder_mlp is not None:
-                self.decoder_mlp.train()
-            self.decoder_output_proj.eval()
-            self.decoder_init_proj.eval()
-        else:
-            super().eval()
+        super().eval()
         return self
 
     def forward(self, x, edge_index, edge_attr=None, return_attention=False):
@@ -386,39 +290,7 @@ class GATSeparateEncoderWrapper(nn.Module):
                 x = self.GAT_layers[base_idx + j](x)
 
         # 输出生成
-        if self.use_recurrent_decoder:
-            outputs = []
-            encoder_context = x
-
-            num_layers = self.decoder.num_layers
-            if self.decoder_type == 'LSTM':
-                h_0 = x.unsqueeze(0).repeat(num_layers, 1, 1)
-                c_0 = torch.zeros_like(h_0)
-                hidden = (h_0, c_0)
-            else:
-                hidden = x.unsqueeze(0).repeat(num_layers, 1, 1)
-
-            prev_pred = self.decoder_init_proj(x)
-
-            for t in range(self.out_dim):
-                if self.decoder_use_context:
-                    decoder_input = torch.cat([prev_pred, encoder_context], dim=1)
-                else:
-                    decoder_input = prev_pred
-
-                if self.decoder_mlp is not None:
-                    decoder_input = self.decoder_mlp(decoder_input)
-
-                decoder_input = decoder_input.unsqueeze(0)
-                decoder_output, hidden = self.decoder(decoder_input, hidden)
-
-                pred_t = self.decoder_output_proj(decoder_output.squeeze(0))
-                outputs.append(pred_t)
-                prev_pred = pred_t
-
-            x = torch.cat(outputs, dim=1)
-        else:
-            x = self.MLP_layers_out(x)
+        x = self.MLP_layers_out(x)
 
         if return_attention:
             return x, attention_weights_list

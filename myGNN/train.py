@@ -294,13 +294,6 @@ myGNN训练配置 - 完整记录
     - LSTM Dropout (lstm_dropout): {arch_config.lstm_dropout}
     - 双向LSTM (lstm_bidirectional): {arch_config.lstm_bidirectional}
 
-  循环解码器参数:
-    - 使用循环解码器 (use_recurrent_decoder): {arch_config.use_recurrent_decoder}
-    {'- 解码器类型 (decoder_type): ' + str(arch_config.decoder_type) if arch_config.use_recurrent_decoder else ''}
-    {'- 解码器层数 (decoder_num_layers): ' + str(arch_config.decoder_num_layers) if arch_config.use_recurrent_decoder else ''}
-    {'- 解码器Dropout (decoder_dropout): ' + str(arch_config.decoder_dropout) if arch_config.use_recurrent_decoder else ''}
-    {'- 使用上下文注入 (decoder_use_context): ' + str(arch_config.decoder_use_context) if arch_config.use_recurrent_decoder else ''}
-    {'- 前置MLP层数 (decoder_mlp_layers): ' + str(arch_config.decoder_mlp_layers) if arch_config.use_recurrent_decoder else ''}
 
 【可视化配置】
   自动可视化 (auto_visualize): {config.auto_visualize}
