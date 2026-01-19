@@ -232,10 +232,8 @@ class Config:
 
 
         # 静态特征编码器配置
+        # 静态特征不进行编码,直接使用原始特征 (恒等映射)
         self.static_encoded_dim = len(self.static_feature_indices)          # 静态特征编码后的维度
-        self.static_encoder_type = 'none'     # 编码器类型: 'mlp', 'linear', 'none'
-        self.static_encoder_layers = 1      # MLP编码器层数
-        self.static_encoder_dropout = 0.2    # 编码器Dropout率
 
         # 标准化参数（训练时自动计算）
         self.ta_mean = 0.0
@@ -497,7 +495,7 @@ def print_config(config, arch_config):
         print(
             f"  动态特征索引: {config.dynamic_feature_indices} ({len(config.dynamic_feature_indices)}个)")
         print(f"  静态编码维度: {config.static_encoded_dim}")
-        print(f"  静态编码器: {config.static_encoder_type}")
+        print(f"  静态编码器: 恒等映射 (无编码)")
     else:
         print(f"  特征分离: 禁用（使用原混合模式）")
 

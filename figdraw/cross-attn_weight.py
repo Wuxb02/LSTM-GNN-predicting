@@ -27,11 +27,10 @@ from myGNN.network_GNN import get_model  # 使用 network_GNN 中的模型加载
 def analyze_context_sensitivity():
     # 1. 初始化配置和模型
     config, arch_config = create_config()
-    
-    # 强制覆盖配置以确保对齐 (假设你已经在config.py里改了，这里双重保险)
-    config.static_encoded_dim = 10 
-    config.static_encoder_type = 'none'
-    
+
+    # 强制覆盖配置以确保对齐
+    config.static_encoded_dim = 10
+
     # 加载数据
     graph = load_graph_from_station_info(config.station_info_fp)
     _, _, test_loader, stats = create_dataloaders(config, graph)

@@ -578,13 +578,10 @@ def _create_dataloaders_separated(config, graph, MetData):
     year_boundaries = _get_year_boundaries()
     print(f"\n按年份提取静态特征:")
 
-    # 创建静态编码器
+    # 创建静态编码器（恒等映射）
     static_encoder = StaticFeatureEncoder(
         input_dim=len(static_indices),
-        output_dim=config.static_encoded_dim,
-        encoder_type=config.static_encoder_type,
-        num_layers=config.static_encoder_layers,
-        dropout=config.static_encoder_dropout
+        output_dim=config.static_encoded_dim
     )
 
     # 按年份提取和编码静态特征
