@@ -13,9 +13,15 @@
 日期: 2025
 """
 
+import sys
+from pathlib import Path
+
+# 添加项目根目录到sys.path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional, Tuple, Dict
 import numpy as np
 import matplotlib
@@ -34,11 +40,17 @@ class ComparisonConfig:
     model1_name: str = "Model 1"  # 图例显示名称
     model2_name: str = "Model 2"
 
-    # 数据范围
-    day_start: int = 0
-    day_end: Optional[int] = None  # None表示到最后
-    station_id: Optional[int] = None  # None表示所有站点平均
-    pred_step: int = 0  # 预测步长索引
+    # 数据范围配置（两种模式）
+    # 模式1: 使用有效样本索引（默认）
+    day_start: Optional[int] = None     # 有效样本起始索引（0-346）
+    day_end: Optional[int] = None       # 有效样本结束索引（None=到最后）
+
+    # 模式2: 使用真实DOY范围（优先级更高）
+    doy_start: Optional[int] = None     # 起始DOY（例如：15表示1月15日）
+    doy_end: Optional[int] = None       # 结束DOY（例如：361表示12月27日）
+
+    station_id: Optional[int] = None    # None表示所有站点平均
+    pred_step: int = 0                  # 预测步长索引
 
     # 输出配置
     output_path: str = 'figdraw/result/model_comparison.png'
@@ -50,6 +62,98 @@ class ComparisonConfig:
     grid_alpha: float = 0.3
     line_width: float = 2.5
     marker_size: int = 3
+
+
+def doy_to_sample_idx(doy: int, MetData: np.ndarray, data_config) -> int:
+    """
+    将DOY转换为有效样本索引
+
+    Args:
+        doy: 年内日序数（Day of Year）
+        MetData: 原始气象数据 [time_steps, num_stations, features]
+        data_config: 数据配置对象
+
+    Returns:
+        int: 有效样本索引（0-346）
+
+    Raises:
+        ValueError: DOY不在有效范围内
+    """
+    val_start = data_config.val_start
+    val_end = data_config.val_end if hasattr(data_config, 'val_end') else MetData.shape[0]
+    hist_len = data_config.hist_len
+
+    # 在验证集范围内查找匹配的DOY
+    for time_idx in range(val_start + hist_len, val_end):
+        current_doy = MetData[time_idx, 0, 26]  # 特征索引26是DOY
+        if abs(current_doy - doy) < 0.5:  # 容差匹配
+            # 转换为有效样本索引
+            sample_idx = time_idx - val_start - hist_len
+            return sample_idx
+
+    raise ValueError(
+        f"DOY={doy} 不在有效范围内。"
+        f"有效DOY范围：{MetData[val_start + hist_len, 0, 26]:.0f} - "
+        f"{MetData[val_end - 1, 0, 26]:.0f}"
+    )
+
+
+def resolve_data_range(
+    config: ComparisonConfig,
+    MetData: np.ndarray,
+    data_config,
+    num_samples: int
+) -> Tuple[int, int]:
+    """
+    解析数据范围配置，支持DOY和样本索引两种模式
+
+    Args:
+        config: 配置对象
+        MetData: 原始气象数据
+        data_config: 数据配置对象
+        num_samples: 有效样本总数
+
+    Returns:
+        (day_start, day_end): 有效样本索引范围
+    """
+    # 优先使用DOY模式
+    if config.doy_start is not None or config.doy_end is not None:
+        print("  [模式] 使用DOY范围配置")
+
+        # 默认值
+        if config.doy_start is None:
+            day_start = 0
+            doy_start_actual = MetData[data_config.val_start + data_config.hist_len, 0, 26]
+        else:
+            day_start = doy_to_sample_idx(config.doy_start, MetData, data_config)
+            doy_start_actual = config.doy_start
+
+        if config.doy_end is None:
+            day_end = num_samples
+            doy_end_actual = MetData[data_config.val_start + data_config.hist_len + num_samples - 1, 0, 26]
+        else:
+            day_end = doy_to_sample_idx(config.doy_end, MetData, data_config) + 1
+            doy_end_actual = config.doy_end
+
+        print(f"  [DOY范围] {doy_start_actual:.0f} - {doy_end_actual:.0f}")
+        print(f"  [样本索引] {day_start} - {day_end-1} (共{day_end - day_start}个)")
+
+    else:
+        # 使用样本索引模式
+        print("  [模式] 使用样本索引配置")
+        day_start = config.day_start if config.day_start is not None else 0
+        day_end = config.day_end if config.day_end is not None else num_samples
+
+        # 计算对应的DOY
+        time_start = data_config.val_start + data_config.hist_len + day_start
+        time_end = data_config.val_start + data_config.hist_len + day_end - 1
+        doy_start = MetData[time_start, 0, 26]
+        doy_end = MetData[time_end, 0, 26]
+
+        print(f"  [样本索引] {day_start} - {day_end-1} (共{day_end - day_start}个)")
+        print(f"  [对应DOY] {doy_start:.0f} - {doy_end:.0f}")
+
+    return day_start, day_end
 
 
 def load_validation_data(checkpoint_dir: str) -> Dict:
@@ -78,9 +182,9 @@ def load_validation_data(checkpoint_dir: str) -> Dict:
         raise FileNotFoundError(f"Checkpoint目录不存在: {checkpoint_dir}")
 
     # 加载必需文件
-    pred_file = ckpt_path / 'val_predict.npy'
-    label_file = ckpt_path / 'val_label.npy'
-    time_file = ckpt_path / 'val_time.npy'
+    pred_file = ckpt_path / 'test_predict.npy'
+    label_file = ckpt_path / 'test_label.npy'
+    time_file = ckpt_path / 'test_time.npy'
 
     if not pred_file.exists():
         raise FileNotFoundError(f"缺失预测文件: {pred_file}")
@@ -204,7 +308,9 @@ def plot_comparison(
     labels: np.ndarray,
     pred1: np.ndarray,
     pred2: np.ndarray,
-    day_start: int
+    day_start: int,
+    MetData: np.ndarray,
+    data_config
 ) -> None:
     """
     绘制三条曲线对比图（简洁模式）
@@ -215,9 +321,25 @@ def plot_comparison(
         pred1: [num_days] 模型1预测
         pred2: [num_days] 模型2预测
         day_start: 起始天数索引（用于x轴标签）
+        MetData: 原始气象数据 [time_steps, num_stations, features]
+        data_config: 数据配置对象（用于获取val_start等参数）
     """
     num_days = len(labels)
-    x_axis = np.arange(day_start, day_start + num_days)
+
+    # 计算真实DOY
+    # 有效样本索引 → 原始数据索引 → DOY
+    val_start = data_config.val_start  # 2191
+    hist_len = data_config.hist_len    # 14
+
+    # 计算每个样本对应的原始数据索引
+    time_indices = val_start + hist_len + day_start + np.arange(num_days)
+
+    # 从MetData中提取DOY（特征索引26）
+    # MetData shape: [time_steps, num_stations, features]
+    # 所有气象站的DOY相同，取第一个站点
+    doy_values = MetData[time_indices, 0, 26]
+
+    x_axis = doy_values  # 使用真实DOY作为X轴
     # 创建图表
     fig, ax = plt.subplots(figsize=config.figsize, dpi=config.dpi)
 
@@ -324,10 +446,33 @@ def main():
         model1_name='MSE Loss',
         model2_name='ETW Loss',
 
-        # 数据范围
-        day_start=150,
-        day_end=250,  # None表示到最后
-        station_id=6,  # None表示所有站点平均
+        # ============ 数据范围配置（两种模式二选一）============
+        #
+        # 【模式1：使用有效样本索引】（传统模式）
+        # - day_start: 有效样本起始索引（0-345）
+        # - day_end: 有效样本结束索引（None表示到最后）
+        # - 示例：day_start=0, day_end=100 表示前100个有效样本
+        #
+        # day_start=0,
+        # day_end=None,
+        #
+        # 【模式2：使用真实DOY范围】（推荐）⭐
+        # - doy_start: 起始DOY（年内日序数，15-361）
+        # - doy_end: 结束DOY（年内日序数，15-361）
+        # - 示例：doy_start=100, doy_end=200 表示DOY 100-200的数据
+        # - 优点：直观反映实际日期，更易理解
+        #
+        # 常用DOY参考：
+        #   - 春季：80-170（3月下旬-6月中旬）
+        #   - 夏季：170-260（6月下旬-9月中旬）
+        #   - 秋季：260-340（9月下旬-12月上旬）
+        #   - 冬季：15-80（1月中旬-3月下旬）+ 340-361（12月上旬-12月底）
+        #
+        doy_start=None,    # None表示从第一个有效样本开始（DOY=15）
+        doy_end=None,      # None表示到最后一个有效样本（DOY=361）
+        # ========================================================
+
+        station_id=6,     # None表示所有站点平均
         pred_step=0,
 
         # 输出配置
@@ -343,8 +488,24 @@ def main():
     print("=" * 60)
 
     try:
+        # Step 0: 加载原始气象数据和配置
+        print(f"\n[0/5] 加载原始数据...")
+
+        # 简化的配置（避免导入torch）
+        class SimpleConfig:
+            def __init__(self):
+                self.MetData_fp = str(script_dir / 'data' / 'real_weather_data_2010_2017.npy')
+                self.val_start = 2191  # 2016年初
+                self.hist_len = 14     # 历史窗口长度
+                self.pred_len = 5      # 预测长度
+
+        data_config = SimpleConfig()
+        MetData = np.load(data_config.MetData_fp)
+        print(f"    [OK] MetData shape: {MetData.shape}")
+        print(f"    [OK] Config: hist_len={data_config.hist_len}, pred_len={data_config.pred_len}")
+
         # Step 1: 加载两个模型的数据
-        print(f"\n[1/4] 加载模型数据...")
+        print(f"\n[1/5] 加载模型数据...")
         print(f"  - Model 1: {config.model1_dir}")
         data1 = load_validation_data(config.model1_dir)
         print(f"    [OK] Data shape: {data1['predictions'].shape}")
@@ -361,20 +522,24 @@ def main():
             )
 
         # Step 2: 提取指定范围数据
-        print(f"\n[2/4] 提取数据范围...")
-        print(f"  - 天数范围: [{config.day_start}, {config.day_end or 'end'})")
+        print(f"\n[2/5] 提取数据范围...")
+
+        # 解析数据范围（支持DOY和样本索引两种模式）
+        day_start, day_end = resolve_data_range(
+            config, MetData, data_config, data1['shape_info']['num_samples']
+        )
         print(f"  - 预测步长: {config.pred_step}")
 
         pred1, labels = extract_predictions(
-            data1, config.day_start, config.day_end, config.pred_step
+            data1, day_start, day_end, config.pred_step
         )
         pred2, _ = extract_predictions(
-            data2, config.day_start, config.day_end, config.pred_step
+            data2, day_start, day_end, config.pred_step
         )
         print(f"    [OK] Extracted shape: {pred1.shape}")
 
         # Step 3: 计算站点平均
-        print(f"\n[3/4] Computing station data...")
+        print(f"\n[3/5] Computing station data...")
         station_text = (
             "All stations average" if config.station_id is None
             else f"Station {config.station_id}"
@@ -387,9 +552,10 @@ def main():
         print(f"    [OK] Final shape: {labels_avg.shape}")
 
         # Step 4: 绘制对比图
-        print(f"\n[4/4] 绘制对比图...")
+        print(f"\n[4/5] 绘制对比图...")
         plot_comparison(
-            config, labels_avg, pred1_avg, pred2_avg, config.day_start
+            config, labels_avg, pred1_avg, pred2_avg,
+            day_start, MetData, data_config
         )
 
         # 输出统计信息

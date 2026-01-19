@@ -259,7 +259,13 @@ def plot_temperature_distribution(label_values, pred1_values, pred2_values,
     ax.grid(True, alpha=0.3, linestyle='--', axis='y')
     ax.legend(loc='best', fontsize=fontsize)
     ax.tick_params(labelsize=ticksize)
-    
+
+    plt.axvline(x=35,
+            linestyle='--',
+            linewidth=2.5,
+            color='black',
+            alpha=0.3
+            )
 
     # 保存
     plt.tight_layout()
