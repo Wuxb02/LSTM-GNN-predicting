@@ -58,7 +58,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/yourusername/gnn_predict.git
+git clone https://github.com/Wuxb02/LSTM-GNN-predicting.git
 cd gnn_predict
 
 # 安装依赖
