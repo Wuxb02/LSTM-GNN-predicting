@@ -235,7 +235,7 @@ class Config:
         self.static_encoded_dim = len(self.static_feature_indices)          # 静态特征编码后的维度
         self.static_encoder_type = 'none'     # 编码器类型: 'mlp', 'linear', 'none'
         self.static_encoder_layers = 1      # MLP编码器层数
-        self.static_encoder_dropout = 0.5    # 编码器Dropout率
+        self.static_encoder_dropout = 0.2    # 编码器Dropout率
 
         # 标准化参数（训练时自动计算）
         self.ta_mean = 0.0
@@ -305,7 +305,7 @@ class Config:
         self.eta_min = 1e-4      # 最小学习率
         # ReduceLROnPlateau参数
         self.patience = 20       # 性能不提升的耐心值
-        self.factor = 0.5        # 学习率衰减因子
+        self.factor = 0.2        # 学习率衰减因子
         # MultiStepLR参数
         self.milestones = [50, 100, 150]  # 学习率衰减的epoch列表
 
@@ -380,8 +380,8 @@ class ArchConfig:
         # ==================== GAT特定参数 ====================
         self.GAT_layer = 1  # GAT层数（从2增加到3以增强图学习能力）
         self.heads = 1         # 注意力头数
-        self.intra_drop = 0.5  # GAT层内Dropout
-        self.inter_drop = 0.5  # GNN层间Dropout
+        self.intra_drop = 0.2  # GAT层内Dropout
+        self.inter_drop = 0.2  # GNN层间Dropout
 
         # ==================== SAGE特定参数 ====================
         self.SAGE_layer = 1  # SAGE层数（从2增加到3，保持一致）
@@ -390,7 +390,7 @@ class ArchConfig:
 
         # ==================== LSTM特定参数 ====================
         self.lstm_num_layers = 1        # LSTM层数（默认1）
-        self.lstm_dropout = 0.5         # LSTM层间Dropout（仅num_layers > 1时生效）
+        self.lstm_dropout = 0.2         # LSTM层间Dropout（仅num_layers > 1时生效）
         self.lstm_bidirectional = False  # 是否使用双向LSTM
 
         # ==================== 循环解码器参数 ====================
@@ -398,7 +398,7 @@ class ArchConfig:
         self.use_recurrent_decoder = False      # 是否使用循环解码器
         self.decoder_type = 'LSTM'              # 解码器类型: 'LSTM', 'GRU'
         self.decoder_num_layers = 1             # 解码器层数
-        self.decoder_dropout = 0.5              # 解码器Dropout（仅num_layers > 1时生效）
+        self.decoder_dropout = 0.2              # 解码器Dropout（仅num_layers > 1时生效）
         self.decoder_use_context = False         # 🔑解码时是否注入编码器上下文（跳跃连接）
         self.decoder_mlp_layers = 1             # 🔑解码器前置MLP层数（0表示不使用）
 
@@ -416,18 +416,6 @@ class ArchConfig:
 
         # 🔥 改进3: GAT残差连接参数
         self.use_skip_connection = True     # 是否在GAT前后添加残差连接
-
-        # 🔥 改进4: 静态特征编码维度
-        # 说明: 在特征分离模式下，静态特征通过编码器压缩为该维度
-        # 该值应与 Config.static_encoded_dim 保持一致
-        self.static_encoded_dim = 4         # 静态特征编码后的维度
-
-        # ==================== RevIN 配置（新增）⭐ ====================
-        # RevIN (Reversible Instance Normalization) 用于处理非平稳时间序列
-        self.use_revin = False              # 是否启用 RevIN
-        self.revin_affine = False            # 可学习的 gamma 和 beta 参数
-        self.revin_subtract_last = False    # False=使用均值，True=使用最后值
-        self.revin_eps = 1e-5               # 数值稳定性常数
 
 
 def create_config(loss_type=None, **kwargs):
