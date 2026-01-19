@@ -52,72 +52,50 @@ def whichAF(AF):
     else:
         return nn.Identity()
 
-
-class StaticFeatureEncoder(nn.Module):
+class LightweightStaticEncoder(nn.Module):
     """
-    静态特征独立编码器
+    轻量级静态特征编码器 (优化版)
 
-    将每个静态特征维度独立编码为token，用于特征级Cross-Attention。
-    每个静态特征经过独立的MLP编码，保持特征间的区分度。
+    保留 [N, 12, dim] 的输出结构以支持特征级注意力，
+    但移除笨重的 MLP，改用 "特征值 * 可学习基向量" 的方式。
 
-    输入: [N, num_static_features] 原始静态特征（12维）
-    输出: [N, num_static_features, token_dim] 每个特征一个token
+    参数量极低，极难过拟合，且完全保留可解释性。
     """
 
-    def __init__(self, num_features, token_dim, dropout=0.1):
-        """
-        Args:
-            num_features: 静态特征数量（如12）
-            token_dim: 每个token的维度
-            dropout: Dropout率
-        """
-        super(StaticFeatureEncoder, self).__init__()
-
+    def __init__(self, num_features, output_dim):
+        super(LightweightStaticEncoder, self).__init__()
         self.num_features = num_features
-        self.token_dim = token_dim
+        self.output_dim = output_dim
 
-        # 每个静态特征独立的编码器
-        # 输入: 1维标量 → 输出: token_dim维向量
-        self.feature_encoders = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(1, token_dim),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(token_dim, token_dim)
-            ) for _ in range(num_features)
-        ])
-
-        # 可学习的位置编码（区分不同特征的位置）
-        self.position_embedding = nn.Parameter(
-            torch.randn(1, num_features, token_dim) * 0.02
+        # 定义基向量 (Basis Vectors)
+        # 形状: [1, 12, output_dim]
+        # 这里的每一个向量代表一种特征的"语义身份"
+        self.feature_embeddings = nn.Parameter(
+            torch.randn(1, num_features, output_dim) * 0.02
         )
+
 
     def forward(self, x):
         """
         Args:
-            x: [num_nodes, num_features] 静态特征
+            x: [batch_size, num_features]  (原始静态特征值，标量)
 
         Returns:
-            [num_nodes, num_features, token_dim] 特征token序列
+            [batch_size, num_features, output_dim] (特征Token序列)
         """
-        tokens = []
+        batch_size = x.shape[0]
 
-        # 每个特征独立编码
-        for i in range(self.num_features):
-            # 提取第i个特征: [N, 1]
-            feat_i = x[:, i:i+1]
-            # 编码为token: [N, token_dim]
-            token_i = self.feature_encoders[i](feat_i)
-            tokens.append(token_i)
+        # 1. 扩展输入维度
+        # x: [batch, 12] -> [batch, 12, 1]
+        x_expanded = x.unsqueeze(-1)
 
-        # 堆叠: [N, num_features, token_dim]
-        tokens = torch.stack(tokens, dim=1)
-
-        # 添加位置编码
-        tokens = tokens + self.position_embedding
+        # 2. 广播乘法 (Scaling)
+        # 将标量特征值 乘以 对应的特征身份向量
+        # [batch, 12, 1] * [1, 12, dim] -> [batch, 12, dim]
+        # 广播机制会自动处理维度匹配
+        tokens = x_expanded * self.feature_embeddings
 
         return tokens
-
 
 class DynamicEncoder(nn.Module):
     """
@@ -208,13 +186,10 @@ class CrossAttentionFusionV2(nn.Module):
         self.num_heads = num_heads
         self.use_pre_ln = use_pre_ln
 
-        # 静态特征独立编码器
-        self.static_encoder = StaticFeatureEncoder(
+        self.static_encoder = LightweightStaticEncoder(
             num_features=num_static_features,
-            token_dim=output_dim,
-            dropout=dropout
+            output_dim=output_dim  # 确保这里维度和 dynamic_emb 投影后的维度一致
         )
-
         # 动态特征投影
         self.dynamic_proj = nn.Linear(dynamic_dim, output_dim)
 

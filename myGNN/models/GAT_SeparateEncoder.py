@@ -99,74 +99,6 @@ class LightweightStaticEncoder(nn.Module):
 
         return tokens
 
-
-class StaticFeatureEncoder(nn.Module):
-    """
-    静态特征独立编码器 (v3.0 新增)
-
-    将每个静态特征维度独立编码为token，用于特征级Cross-Attention。
-    每个静态特征经过独立的MLP编码，保持特征间的区分度。
-
-    输入: [N, num_static_features] 原始静态特征（12维）
-    输出: [N, num_static_features, token_dim] 每个特征一个token
-    """
-
-    def __init__(self, num_features, token_dim, dropout=0.1):
-        """
-        Args:
-            num_features: 静态特征数量（如12）
-            token_dim: 每个token的维度
-            dropout: Dropout率
-        """
-        super(StaticFeatureEncoder, self).__init__()
-
-        self.num_features = num_features
-        self.token_dim = token_dim
-
-        # 每个静态特征独立的编码器
-        # 输入: 1维标量 → 输出: token_dim维向量
-        self.feature_encoders = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(1, token_dim),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(token_dim, token_dim)
-            ) for _ in range(num_features)
-        ])
-
-        # 可学习的位置编码（区分不同特征的位置）
-        self.position_embedding = nn.Parameter(
-            torch.randn(1, num_features, token_dim) * 0.02
-        )
-
-    def forward(self, x):
-        """
-        Args:
-            x: [num_nodes, num_features] 静态特征
-
-        Returns:
-            [num_nodes, num_features, token_dim] 特征token序列
-        """
-        batch_size = x.shape[0]
-        tokens = []
-
-        # 每个特征独立编码
-        for i in range(self.num_features):
-            # 提取第i个特征: [N, 1]
-            feat_i = x[:, i:i+1]
-            # 编码为token: [N, token_dim]
-            token_i = self.feature_encoders[i](feat_i)
-            tokens.append(token_i)
-
-        # 堆叠: [N, num_features, token_dim]
-        tokens = torch.stack(tokens, dim=1)
-
-        # 添加位置编码
-        tokens = tokens + self.position_embedding
-
-        return tokens
-
-
 class DynamicEncoder(nn.Module):
     """
     动态特征编码器
@@ -256,13 +188,6 @@ class CrossAttentionFusionV2(nn.Module):
         self.output_dim = output_dim
         self.num_heads = num_heads
         self.use_pre_ln = use_pre_ln
-
-        # 静态特征独立编码器
-        # self.static_encoder = StaticFeatureEncoder(
-        #     num_features=num_static_features,
-        #     token_dim=output_dim,
-        #     dropout=dropout
-        # )
 
         self.static_encoder = LightweightStaticEncoder(
             num_features=num_static_features,
