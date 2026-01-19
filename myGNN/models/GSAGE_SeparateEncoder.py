@@ -27,10 +27,6 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import SAGEConv
 
-# 导入 RevIN 层
-from .layers import RevIN
-
-
 def get_norm_layer(norm_type, dim):
     """规范化层选择"""
     if norm_type == 'BatchNorm':
@@ -366,15 +362,7 @@ class GSAGE_SeparateEncoder(nn.Module):
         # ==================== 可学习节点嵌入 ====================
         # 捕获未被数据记录的隐式站点特征（如微气候效应）
         self.node_emb_dim = getattr(arch_arg, 'node_emb_dim', 4)  # 默认4维
-        self.use_node_embedding = getattr(arch_arg, 'use_node_embedding', True)
 
-        if self.use_node_embedding:
-            # 初始化可训练的节点嵌入 [num_nodes, node_emb_dim]
-            self.node_embedding = nn.Parameter(
-                torch.randn(config.node_num, self.node_emb_dim) * 0.01
-            )
-        else:
-            self.node_embedding = None
 
         # ==================== 分离式编码器 ====================
         # 动态编码器（LSTM处理时序特征）
@@ -394,8 +382,6 @@ class GSAGE_SeparateEncoder(nn.Module):
 
         # 静态特征数量（包含节点嵌入）
         num_static_features = self.static_dim
-        if self.use_node_embedding:
-            num_static_features += self.node_emb_dim
         self.num_static_features = num_static_features
 
         self.fusion = CrossAttentionFusionV2(
@@ -500,25 +486,6 @@ class GSAGE_SeparateEncoder(nn.Module):
             MLP_layers_out.append(nn.Linear(self.hid_dim, self.out_dim))
             self.MLP_layers_out = nn.Sequential(*MLP_layers_out)
 
-        # ==================== RevIN 层（新增）⭐ ====================
-        # 用于处理非平稳时间序列的分布偏移问题
-        self.use_revin = getattr(arch_arg, 'use_revin', False)
-        if self.use_revin:
-            # 仅对动态特征应用 RevIN（静态特征不随时间变化）
-            # dynamic_dim: 动态气象要素数量
-            # temporal_dim: 时间编码维度（sin/cos）
-            revin_num_features = self.dynamic_dim + self.temporal_dim
-            self.revin_layer = RevIN(
-                num_features=revin_num_features,
-                eps=getattr(arch_arg, 'revin_eps', 1e-5),
-                affine=getattr(arch_arg, 'revin_affine', True),
-                subtract_last=getattr(arch_arg, 'revin_subtract_last', False)
-            )
-            print(f"✓ RevIN 已启用 (特征数={revin_num_features}, "
-                  f"affine={self.revin_layer.affine}, "
-                  f"subtract_last={self.revin_layer.subtract_last})")
-        else:
-            self.revin_layer = None
 
     def forward(self, x, edge_index, edge_attr=None, return_cross_attention=False):
         """
@@ -545,25 +512,6 @@ class GSAGE_SeparateEncoder(nn.Module):
         # 输入格式: [静态特征(12), 动态特征(12), 时间编码(4)]
         static_features = x[:, 0, :self.static_dim]  # [total_nodes, static_dim]
         dynamic_features = x[:, :, self.static_dim:]  # [total_nodes, hist_len, dynamic_dim+temporal_dim]
-
-        # ==================== 新增: RevIN 标准化 ⭐ ====================
-        if self.use_revin:
-            # 仅对动态特征应用 RevIN（时间编码也包含在内）
-            dynamic_features = self.revin_layer.normalize(dynamic_features)
-
-        # ==================== 2. 节点嵌入增强 ====================
-        if self.use_node_embedding:
-            # 计算实际的节点数和批次大小
-            batch_size = total_nodes // self.node_embedding.shape[0]
-
-            # 将节点嵌入扩展到批次维度
-            node_emb_expanded = self.node_embedding.unsqueeze(0).expand(
-                batch_size, -1, -1
-            ).reshape(total_nodes, -1)
-
-            # 将可学习的节点嵌入与静态特征拼接
-            # [total_nodes, static_dim + node_emb_dim]
-            static_features = torch.cat([static_features, node_emb_expanded], dim=-1)
 
         # ==================== 3. 动态编码 ====================
         dynamic_emb = self.dynamic_encoder(dynamic_features)  # [total_nodes, hid_dim//2]
@@ -632,39 +580,6 @@ class GSAGE_SeparateEncoder(nn.Module):
         else:
             x = self.MLP_layers_out(x)
 
-        # ==================== 新增: RevIN 反标准化 ⭐ ====================
-        if self.use_revin:
-            # 计算目标特征在动态特征中的索引
-            target_global_idx = self.config.target_feature_idx
-            dynamic_indices = self.config.dynamic_feature_indices
-
-            if target_global_idx in dynamic_indices:
-                target_idx_in_dynamic = dynamic_indices.index(target_global_idx)
-            else:
-                # 如果目标不在动态特征中，使用第一个动态特征的统计量
-                print(f"警告: 目标特征索引 {target_global_idx} 不在动态特征列表中，"
-                      f"使用第一个动态特征的统计量")
-                target_idx_in_dynamic = 0
-
-            # 扩展输出维度: [total_nodes, pred_len] → [total_nodes, pred_len, 1]
-            output_expanded = x.unsqueeze(-1)
-
-            # 提取目标特征的统计量
-            mean_target = self.revin_layer.mean[:, :, target_idx_in_dynamic:target_idx_in_dynamic+1]
-            stdev_target = self.revin_layer.stdev[:, :, target_idx_in_dynamic:target_idx_in_dynamic+1]
-
-            # 反仿射变换（如果启用）
-            if self.revin_layer.affine:
-                gamma_target = self.revin_layer.gamma[target_idx_in_dynamic]
-                beta_target = self.revin_layer.beta[target_idx_in_dynamic]
-                output_expanded = (output_expanded - beta_target) / gamma_target
-
-            # 反标准化: output * stdev + mean
-            output_expanded = output_expanded * stdev_target + mean_target
-
-            # 压缩回原始形状: [total_nodes, pred_len, 1] → [total_nodes, pred_len]
-            x = output_expanded.squeeze(-1)
-
         # 返回结果
         if return_cross_attention:
             return x, cross_attn_weights
@@ -709,7 +624,6 @@ if __name__ == "__main__":
         decoder_mlp_layers = 0
 
         # 分离式编码器参数
-        use_node_embedding = True   # 启用节点嵌入
         node_emb_dim = 4            # 节点嵌入维度
         fusion_num_heads = 4        # 交叉注意力头数
         fusion_use_pre_ln = True    # 使用Pre-LN
@@ -720,7 +634,6 @@ if __name__ == "__main__":
 
     print(f"\n{'='*50}")
     print("测试 GSAGE_SeparateEncoder 模型")
-    print(f"  - 节点嵌入: {'启用' if arch_arg.use_node_embedding else '禁用'}")
     print(f"  - 静态特征数: {config.static_encoded_dim}")
     print(f"  - SAGE层数: {arch_arg.SAGE_layer}")
     print(f"  - 聚合方式: {arch_arg.aggr}")
@@ -771,10 +684,6 @@ if __name__ == "__main__":
     print(f"  - Total parameters: {total_params:,}")
     print(f"  - Trainable parameters: {trainable_params:,}")
 
-    # Check node embeddings
-    if arch_arg.use_node_embedding:
-        print(f"  - Node embedding shape: {model.node_embedding.shape}")
-        print(f"  - Node embedding params: {model.node_embedding.numel()}")
 
     # Check static features count
     print(f"  - Static features (with node emb): {model.num_static_features}")

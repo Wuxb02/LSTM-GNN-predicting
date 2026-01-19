@@ -410,10 +410,6 @@ class ArchConfig:
         self.fusion_num_heads = 1           # 交叉注意力头数（必须能整除hid_dim）
         self.fusion_use_pre_ln = True       # 是否使用Pre-LN（推荐True）
 
-        # 🔥 改进2: 可学习节点嵌入参数
-        self.use_node_embedding = False      # 是否启用节点嵌入
-        self.node_emb_dim = 2               # 节点嵌入维度（捕获隐式站点特征）
-
         # 🔥 改进3: GAT残差连接参数
         self.use_skip_connection = True     # 是否在GAT前后添加残差连接
 
@@ -543,9 +539,6 @@ def print_config(config, arch_config):
         print(f"\n【分离式编码器配置 (v2.0优化版)】")
         print(f"  交叉注意力头数: {arch_config.fusion_num_heads}")
         print(f"  Pre-LN模式: {arch_config.fusion_use_pre_ln}")
-        print(f"  节点嵌入: {'启用' if arch_config.use_node_embedding else '禁用'}")
-        if arch_config.use_node_embedding:
-            print(f"    - 节点嵌入维度: {arch_config.node_emb_dim}")
         print(
             f"  残差连接: {'启用' if arch_config.use_skip_connection else '禁用'}")
         if 'GSAGE' in config.exp_model:

@@ -456,22 +456,9 @@ class GATSeparateEncoderWrapper(nn.Module):
 
             # 3. 检测架构版本并进行特征融合
             if hasattr(full_model, 'static_encoder'):
-                # v2.0 架构: 独立的static_encoder
-                # 拼接节点嵌入到静态特征（如果启用）
-                if full_model.use_node_embedding and full_model.node_embedding is not None:
-                    node_emb = full_model.node_embedding
-                    static_features = torch.cat([static_features, node_emb], dim=-1)
-
                 static_emb = full_model.static_encoder(static_features)
                 x = full_model.fusion(static_emb, dynamic_emb)
             else:
-                # v3.0 架构: CrossAttentionFusionV2 内部处理静态编码
-                # fusion直接接受原始静态特征
-                # 拼接节点嵌入到静态特征（如果启用）
-                if full_model.use_node_embedding and full_model.node_embedding is not None:
-                    node_emb = full_model.node_embedding
-                    static_features = torch.cat([static_features, node_emb], dim=-1)
-
                 # v3.0: fusion(static_features, dynamic_emb)
                 # CrossAttentionFusionV2.forward 内部调用 self.static_encoder
                 x = full_model.fusion(static_features, dynamic_emb)

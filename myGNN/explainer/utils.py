@@ -417,56 +417,6 @@ def edge_attention_to_matrix(edge_index, attention_weights, num_nodes,
     return attention_matrix
 
 
-# ==============================================================================
-# 节点嵌入分析工具函数 (新增)
-# ==============================================================================
-
-def extract_node_embeddings(model):
-    """
-    从GAT_SeparateEncoder模型中提取可学习的节点嵌入
-
-    此函数从支持可学习节点嵌入的模型中提取训练后的嵌入向量。
-    节点嵌入是模型学习到的隐式站点特征表示，用于捕获数据中
-    未明确记录的微气候效应（如街道峡谷效应、城市热岛等）。
-
-    Args:
-        model: PyTorch模型实例，需要包含 `node_embedding` 属性
-
-    Returns:
-        np.ndarray: [num_nodes, embedding_dim] 节点嵌入矩阵
-            - 每一行对应一个气象站的嵌入向量
-            - 已转换为numpy数组，与梯度计算分离
-
-    Raises:
-        ValueError: 如果模型不支持节点嵌入（无 `node_embedding` 属性）
-        ValueError: 如果 `node_embedding` 为 None
-
-    示例:
-        >>> model = GAT_SeparateEncoder(config, arch_arg)
-        >>> embeddings = extract_node_embeddings(model)
-        >>> print(embeddings.shape)  # (28, 4)
-    """
-    # 检查模型是否有node_embedding属性
-    if not hasattr(model, 'node_embedding'):
-        raise ValueError(
-            f"模型 {type(model).__name__} 不支持节点嵌入。\n"
-            "仅 GAT_SeparateEncoder 等支持可学习节点嵌入的模型可用此函数。"
-        )
-
-    if model.node_embedding is None:
-        raise ValueError(
-            "模型的 node_embedding 属性为 None。\n"
-            "请检查模型配置中的 use_node_embedding 参数是否设置为 True。"
-        )
-
-    # 提取嵌入向量并转换为numpy数组
-    # detach(): 从计算图中分离，停止梯度追踪
-    # cpu(): 将张量移动到CPU（如果在GPU上）
-    # numpy(): 转换为numpy数组
-    embeddings = model.node_embedding.detach().cpu().numpy()
-
-    return embeddings
-
 
 def tsne_reduce_embeddings(embeddings, random_state=42, perplexity=10,
                             n_iter=1000, learning_rate='auto'):
