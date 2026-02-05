@@ -91,14 +91,14 @@ STAT_FUNCTIONS = {
 
 # 统计类型显示名称
 STAT_DISPLAY_NAME = {
-    'mean': 'Mean',
-    'std': 'Std'
+    'mean': '',
+    'std': ' '
 }
 
 # 统计类型单位后缀
 STAT_UNIT_SUFFIX = {
     'mean': '',
-    'std': ' Std'
+    'std': ''
 }
 
 
@@ -277,7 +277,7 @@ def plot_temperature_spatial_map_with_basemap(temp_stat, lon, lat,
     temp_display = TEMP_DISPLAY_NAME[temp_type]
     stat_display = STAT_DISPLAY_NAME[stat_type]
     unit_suffix = STAT_UNIT_SUFFIX[stat_type]
-    cbar.ax.set_title(f'{temp_display} {stat_display}{unit_suffix} (°C)',
+    cbar.ax.set_title(f'{temp_display}(°C)',
                       fontsize=fontsize)
     cbar.ax.tick_params(labelsize=fontsize)
 
