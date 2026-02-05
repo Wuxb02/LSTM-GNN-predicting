@@ -68,7 +68,7 @@ class LossConfig:
         self.c_over = 2                     # 误报权重系数(高估的惩罚),可较小
         self.c_default_high = 1.0           # 正确预报高温的权重
         self.delta = 0.1                    # 小偏置,缓冲max(0,⋅)计算
-        self.trend_weight = 0.2             # 趋势权重
+        self.trend_weight = 0               # 趋势权重
 
 
 def get_feature_indices_for_graph(config):
@@ -297,7 +297,7 @@ class Config:
         self.eta_min = 1e-4      # 最小学习率
         # ReduceLROnPlateau参数
         self.patience = 20       # 性能不提升的耐心值
-        self.factor = 0.2        # 学习率衰减因子
+        self.factor = 0.8        # 学习率衰减因子
         # MultiStepLR参数
         self.milestones = [50, 100, 150]  # 学习率衰减的epoch列表
 

@@ -197,7 +197,6 @@ myGNN训练配置 - 完整记录
   站点信息路径: {config.station_info_fp}
   数据集标识: {config.dataset_num}
   节点数量: {config.node_num}
-  城市数量: {config.city_num}
 
 【数据集划分】
   训练集: 索引 {config.train_start}-{config.train_end-1} ({config.train_end - config.train_start} 天)
