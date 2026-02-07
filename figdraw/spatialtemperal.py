@@ -8,15 +8,18 @@ from pathlib import Path
 # ============ 配置区域 ============
 # Checkpoint目录路径
 script_dir = Path(__file__).parent.parent
-CHECKPOINT_DIR = str(script_dir / 'myGNN' / 'checkpoints' / 'GAT_SeparateEncoder_20260114_213305')
+CHECKPOINT_DIR = str(script_dir / 'myGNN' / 'checkpoints' / 'LSTM_20251222_144549')
 PRED_STEP = 0  # 预测步长索引（0-4对应第1-5天）
 FILL_MISSING = True  # 是否填充缺失日期（True=填充NaN以显示完整年份）
+SELECTED_STATIONS = [24,25]  # 指定站点列表，如[0, 5, 10, 15]；None表示全部28个站点
 # ==================================
 
 # ---------------------------------------------------------
 # 1. 数据加载与处理
 # ---------------------------------------------------------
-def load_test_data_with_dates(checkpoint_dir: str, pred_step: int = 0, fill_missing: bool = False) -> pd.DataFrame:
+def load_test_data_with_dates(checkpoint_dir: str, pred_step: int = 0,
+                              fill_missing: bool = False,
+                              selected_stations: list = None) -> pd.DataFrame:
     """
     从checkpoint加载真实测试集数据并计算每天的RMSE
 
@@ -24,6 +27,7 @@ def load_test_data_with_dates(checkpoint_dir: str, pred_step: int = 0, fill_miss
         checkpoint_dir: checkpoint目录路径
         pred_step: 预测步长索引（0表示第1天预测）
         fill_missing: 是否填充缺失日期以显示完整年份
+        selected_stations: 指定站点索引列表（如[0, 5, 10]），None表示全部站点
 
     Returns:
         DataFrame with columns: ['datetime', 'Month', 'Day', 'RMSE']
@@ -42,8 +46,17 @@ def load_test_data_with_dates(checkpoint_dir: str, pred_step: int = 0, fill_miss
     # 提取指定预测步长的数据
     pred_step_data = predictions[:, :, pred_step]  # [num_samples, num_stations]
     label_step_data = labels[:, :, pred_step]      # [num_samples, num_stations]
+
+    # 过滤指定站点
+    if selected_stations is not None:
+        pred_step_data = pred_step_data[:, selected_stations]
+        label_step_data = label_step_data[:, selected_stations]
+        print(f"  - 选定站点: {selected_stations} (共{len(selected_stations)}个)")
+    else:
+        print(f"  - 使用全部28个站点")
+
     pd.DataFrame({'pred_step_data':np.mean(pred_step_data,axis=1),'label_step_data':np.mean(label_step_data,axis=1)}).to_csv('data.csv')
-    # 计算每个样本的RMSE（所有站点的平均）
+    # 计算每个样本的RMSE（选定站点的平均）
     rmse_per_sample = np.sqrt(np.mean((pred_step_data - label_step_data)**2, axis=1))
     # 构造日期（测试集是2017年，共346个有效样本）
     # 有效样本对应DOY 15-360（1月15日至12月26日）
@@ -57,7 +70,6 @@ def load_test_data_with_dates(checkpoint_dir: str, pred_step: int = 0, fill_miss
         'Day': dates.day,
         'RMSE': rmse_per_sample
     })
-
     print(f"  - 有效样本数: {len(df)}天")
     print(f"  - 日期范围: {df['datetime'].min().date()} 至 {df['datetime'].max().date()}")
     print(f"  - RMSE范围: {df['RMSE'].min():.4f} - {df['RMSE'].max():.4f}°C")
@@ -81,7 +93,9 @@ def load_test_data_with_dates(checkpoint_dir: str, pred_step: int = 0, fill_miss
 
 
 # 加载真实数据
-data = load_test_data_with_dates(CHECKPOINT_DIR, pred_step=PRED_STEP, fill_missing=FILL_MISSING)
+data = load_test_data_with_dates(CHECKPOINT_DIR, pred_step=PRED_STEP,
+                                  fill_missing=FILL_MISSING,
+                                  selected_stations=SELECTED_STATIONS)
 heatmap_data = data.pivot_table(index='Month', columns='Day', values='RMSE', aggfunc='mean')
 daily_mean = data.groupby('Day')['RMSE'].mean()
 monthly_mean = data.groupby('Month')['RMSE'].mean()
@@ -192,10 +206,16 @@ def plot_daily_heatmap_styled(heatmap_data, daily_mean, monthly_mean, data_stats
 
 
 # 准备数据统计信息
+title_suffix = f'Test Set Daily RMSE Heatmap (2017, Step {PRED_STEP+1})'
+if SELECTED_STATIONS is not None:
+    title_suffix += f' - Stations: {SELECTED_STATIONS}'
+else:
+    title_suffix += ' - All 28 Stations'
+
 data_stats = {
     'vmin': data['RMSE'].min() * 0.9,
     'vmax': data['RMSE'].max() * 1.1,
-    'title': f'Test Set Daily RMSE Heatmap (2017, Step {PRED_STEP+1})'
+    'title': title_suffix
 }
 
 # 执行绘图
