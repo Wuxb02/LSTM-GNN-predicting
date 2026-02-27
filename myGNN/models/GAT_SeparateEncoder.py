@@ -337,10 +337,6 @@ class GAT_SeparateEncoder(nn.Module):
 
         AF = whichAF(arch_arg.AF)
 
-        # ==================== 🔥 可学习节点嵌入 ====================
-        # 捕获未被数据记录的隐式站点特征（如微气候效应）
-        self.node_emb_dim = getattr(arch_arg, 'node_emb_dim', 4)  # 默认4维
-
         # ==================== 分离式编码器 ====================
         # 动态编码器（LSTM处理时序特征）
         dynamic_input_dim = self.dynamic_dim + self.temporal_dim
@@ -519,7 +515,6 @@ if __name__ == "__main__":
         decoder_mlp_layers = 0
 
         # v3.0 参数
-        node_emb_dim = 4            # 节点嵌入维度
         fusion_num_heads = 4        # 交叉注意力头数
         fusion_use_pre_ln = True    # 使用Pre-LN
         use_skip_connection = True  # 启用残差连接
@@ -559,7 +554,7 @@ if __name__ == "__main__":
     out, attn_weights = model(x, edge_index, return_cross_attention=True)
     print(f"  Output shape: {out.shape}")
     print(f"  Attention weights shape: {attn_weights.shape}")
-    num_static_features = config.static_encoded_dim + arch_arg.node_emb_dim
+    num_static_features = config.static_encoded_dim
     expected_attn_shape = (
         batch_size, arch_arg.fusion_num_heads, num_static_features)
     print(f"  Expected attention shape: {expected_attn_shape}")
