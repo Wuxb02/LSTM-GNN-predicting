@@ -1281,6 +1281,8 @@ def main():
                 plot_all_stations=config.viz_plot_all_stations,
                 dpi=config.viz_dpi,
                 use_basemap=config.viz_use_basemap,
+                add_scalebar=False,
+                add_north_arrow=False,
                 silent=False
             )
 

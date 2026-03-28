@@ -20,22 +20,22 @@
 日期: 2025
 """
 
+from myGNN.network_GNN import get_metric
+from scipy.stats import gaussian_kde, t
+import sys
+from pathlib import Path
+import pandas as pd
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from matplotlib.gridspec import GridSpec
+import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # 无GUI环境
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-import pandas as pd
-from pathlib import Path
-import sys
-from scipy.stats import gaussian_kde, t
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from myGNN.network_GNN import get_metric
 
 # 地理底图相关导入
 try:
@@ -53,7 +53,7 @@ except ImportError as e:
 # 修改这里的配置来可视化不同的模型
 
 # 模型checkpoint目录(必填)
-CHECKPOINT_DIR = r'.\checkpoints\GAT_SeparateEncoder_20251221_235912'
+CHECKPOINT_DIR = r'.\checkpoints\GAT_SeparateEncoder_20260328_215212'
 
 # 输出目录('auto'表示自动在checkpoint下创建visualizations/)
 OUTPUT_DIR = 'auto'
@@ -174,7 +174,8 @@ class ResultVisualizer:
         if len(self.test_predict.shape) == 2:
             # 如果是2维 [num_samples, num_stations],添加pred_len维度
             print(f"  检测到2维数据,自动转换为3维 (添加pred_len=1)")
-            self.test_predict = self.test_predict[:, :, np.newaxis]  # [N, S, 1]
+            # [N, S, 1]
+            self.test_predict = self.test_predict[:, :, np.newaxis]
             self.test_label = self.test_label[:, :, np.newaxis]
             self.num_samples, self.num_stations, self.pred_len = self.test_predict.shape
         elif len(self.test_predict.shape) == 3:
@@ -224,10 +225,12 @@ class ResultVisualizer:
             if self.num_stations > num_to_use:
                 print(f"  用默认值填充剩余{self.num_stations - num_to_use}个站点")
                 extra_ids = np.arange(num_to_use, self.num_stations)
-                self.station_ids = np.concatenate([self.station_ids, extra_ids])
+                self.station_ids = np.concatenate(
+                    [self.station_ids, extra_ids])
                 self.lon = np.concatenate([self.lon, extra_ids.astype(float)])
                 self.lat = np.concatenate([self.lat, extra_ids.astype(float)])
-                self.height = np.concatenate([self.height, np.zeros(self.num_stations - num_to_use)])
+                self.height = np.concatenate(
+                    [self.height, np.zeros(self.num_stations - num_to_use)])
 
     def calculate_metrics_for_step(self, pred_step):
         """
@@ -247,7 +250,8 @@ class ResultVisualizer:
         }
 
         # 提取该步长的数据
-        pred_step_data = self.test_predict[:, :, pred_step]  # [num_samples, num_stations]
+        # [num_samples, num_stations]
+        pred_step_data = self.test_predict[:, :, pred_step]
         label_step_data = self.test_label[:, :, pred_step]
 
         # 计算每个站点的指标
@@ -405,7 +409,7 @@ class ResultVisualizer:
         ts_dir.mkdir(exist_ok=True)
 
         stations = (range(self.num_stations) if PLOT_ALL_STATIONS
-                   else SAMPLE_STATIONS)
+                    else SAMPLE_STATIONS)
 
         print(f"  生成时间序列图 (共{len(stations)}个站点)...")
 
@@ -507,18 +511,17 @@ class ResultVisualizer:
             # 版本1: 在散点内部标注站点下标
             for i in range(self.num_stations):
                 ax.text(self.lon[i], self.lat[i], str(i),
-                       transform=ccrs.PlateCarree(),  # 关键!指定数据投影
-                       fontsize=fontsize, ha='center', va='center',
-                       color='black', weight='bold', zorder=6)
+                        transform=ccrs.PlateCarree(),  # 关键!指定数据投影
+                        fontsize=fontsize, ha='center', va='center',
+                        color='black', weight='bold', zorder=6)
         else:
             # 版本2: 在散点旁边标注RMSE数值
             for i in range(self.num_stations):
                 rmse_val = metrics['rmse_per_station'][i]
                 ax.text(self.lon[i], self.lat[i], f'{rmse_val:.2f}',
-                       transform=ccrs.PlateCarree(),  # 关键!指定数据投影
-                       fontsize=fontsize, ha='center', va='center',
-                       color='black', weight='bold', zorder=6)
-
+                        transform=ccrs.PlateCarree(),  # 关键!指定数据投影
+                        fontsize=fontsize, ha='center', va='center',
+                        color='black', weight='bold', zorder=6)
 
         # 添加底图
         basemap_loaded = False
@@ -528,7 +531,8 @@ class ResultVisualizer:
             from myGNN.utils.cartopy_helpers import add_mapbox_wmts
 
             # 使用标准OGC WMTS接口
-            add_mapbox_wmts(ax, layer_name='cmit4xn41001v01s51jp2eq6p', alpha=0.6)
+            add_mapbox_wmts(
+                ax, layer_name='cmit4xn41001v01s51jp2eq6p', alpha=0.6)
             basemap_loaded = True
             basemap_name = 'Mapbox WMTS'
             print(f"  ✓ Mapbox WMTS底图加载成功")
@@ -537,7 +541,8 @@ class ResultVisualizer:
             # 直接使用Natural Earth
             print(f"  使用Natural Earth离线底图...")
             from myGNN.utils.cartopy_helpers import add_basemap_features
-            add_basemap_features(ax, style='natural_earth', add_gridlines=False)
+            add_basemap_features(
+                ax, style='natural_earth', add_gridlines=False)
             basemap_loaded = True
             basemap_name = 'Natural Earth'
             print(f"  ✓ Natural Earth底图加载成功")
@@ -545,12 +550,12 @@ class ResultVisualizer:
         # Colorbar - 放置在地图内部左下角
         # 创建一个内嵌的坐标轴用于colorbar
         cax = inset_axes(ax,
-                        width="3%",      # colorbar宽度
-                        height="30%",    # colorbar高度
-                        loc='lower left',  # 位置：左下角
-                        bbox_to_anchor=(0.05, 0.1, 1, 1),  # 相对于ax的位置
-                        bbox_transform=ax.transAxes,
-                        borderpad=0)
+                         width="3%",      # colorbar宽度
+                         height="30%",    # colorbar高度
+                         loc='lower left',  # 位置：左下角
+                         bbox_to_anchor=(0.05, 0.1, 1, 1),  # 相对于ax的位置
+                         bbox_transform=ax.transAxes,
+                         borderpad=0)
 
         cbar = plt.colorbar(scatter, cax=cax, orientation='vertical')
         cbar.ax.set_title('RMSE (°C)', fontsize=fontsize)
@@ -573,7 +578,7 @@ class ResultVisualizer:
 
         # 设置刻度标签字体大小
         gl.xlabel_style = {'size': fontsize}
-        gl.ylabel_style = {'size': fontsize, 'rotation':90}
+        gl.ylabel_style = {'size': fontsize, 'rotation': 90}
 
         # 添加比例尺（如果配置启用）
         if ADD_SCALEBAR and basemap_loaded:
@@ -605,15 +610,15 @@ class ResultVisualizer:
 
                 # 指北针文字
                 ax.text(arrow_x, arrow_y + 0.05, 'N',
-                       transform=ax.transAxes, fontsize=14, ha='center', va='center',
-                       weight='bold',
-                       bbox=dict(boxstyle='circle', facecolor='white',
-                                edgecolor='black', linewidth=1.5, alpha=0.8))
+                        transform=ax.transAxes, fontsize=14, ha='center', va='center',
+                        weight='bold',
+                        bbox=dict(boxstyle='circle', facecolor='white',
+                                  edgecolor='black', linewidth=1.5, alpha=0.8))
 
                 # 指北箭头
                 ax.annotate('', xy=(arrow_x, arrow_y + 0.04), xytext=(arrow_x, arrow_y),
-                          xycoords='axes fraction', textcoords='axes fraction',
-                          arrowprops=dict(arrowstyle='->', lw=2, color='black'))
+                            xycoords='axes fraction', textcoords='axes fraction',
+                            arrowprops=dict(arrowstyle='->', lw=2, color='black'))
             except Exception as e:
                 print(f"  ⚠ 指北针添加失败: {e}")
 
@@ -654,7 +659,7 @@ class ResultVisualizer:
 
         # 平均线
         ax.axhline(mean_rmse, color='blue', linestyle='--',
-                  linewidth=2, label=f'Mean RMSE: {mean_rmse:.4f}°C', alpha=0.7)
+                   linewidth=2, label=f'Mean RMSE: {mean_rmse:.4f}°C', alpha=0.7)
 
         # 设置标签
         ax.set_xlabel('Station ID', fontsize=11)
@@ -665,7 +670,8 @@ class ResultVisualizer:
         )
 
         ax.set_xticks(range(self.num_stations))
-        ax.set_xticklabels([str(i) for i in range(self.num_stations)], fontsize=9)
+        ax.set_xticklabels([str(i)
+                           for i in range(self.num_stations)], fontsize=9)
         ax.grid(True, axis='y', alpha=0.3, linestyle='--')
         ax.legend(loc='best', fontsize=10)
 
@@ -693,26 +699,28 @@ class ResultVisualizer:
         fig, ax = plt.subplots(figsize=(8, 8), dpi=DPI)
 
         # 散点图
-        ax.scatter(label, pred, alpha=0.3, s=10, color='steelblue', edgecolors='none')
+        ax.scatter(label, pred, alpha=0.3, s=10,
+                   color='steelblue', edgecolors='none')
 
         # 对角线(y=x)
         min_val = min(label.min(), pred.min())
         max_val = max(label.max(), pred.max())
         ax.plot([min_val, max_val], [min_val, max_val],
-               'r--', linewidth=2, label='y=x', alpha=0.7)
+                'r--', linewidth=2, label='y=x', alpha=0.7)
 
         # 文本标注
         text_str = f'R² = {r2:.4f}\nRMSE = {rmse:.4f}°C\nMAE = {mae:.4f}°C\nBias = {bias:+.4f}°C'
         ax.text(0.05, 0.95, text_str,
-               transform=ax.transAxes,
-               fontsize=11,
-               verticalalignment='top',
-               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+                transform=ax.transAxes,
+                fontsize=11,
+                verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
         # 设置标签
         ax.set_xlabel('Ground Truth (°C)', fontsize=11)
         ax.set_ylabel('Prediction (°C)', fontsize=11)
-        ax.set_title(f'Step {pred_step+1} Prediction vs Ground Truth (All Stations)', fontsize=12, pad=15)
+        ax.set_title(
+            f'Step {pred_step+1} Prediction vs Ground Truth (All Stations)', fontsize=12, pad=15)
 
         ax.grid(True, alpha=0.3, linestyle='--')
         ax.legend(loc='lower right', fontsize=10)
@@ -724,7 +732,7 @@ class ResultVisualizer:
         plt.close(fig)
 
     def plot_pred_vs_true_marginal(self, pred_step, save_path,
-                                    group_mode='season', group_threshold=20.0):
+                                   group_mode='season', group_threshold=20.0):
         """
         绘制带边缘密度分布的预测vs真实值散点图
 
@@ -773,8 +781,10 @@ class ResultVisualizer:
                     # 定义两组：夏季 vs 其他季节
                     # 夏季: 6,7,8月  其他: 3,4,5,9,10,11,12,1,2月
                     group_masks = [
-                        np.isin(months_expanded, [3, 4, 5, 9, 10, 11, 12, 1, 2]),  # 其他季节
-                        np.isin(months_expanded, [6, 7, 8])                         # 夏季
+                        np.isin(months_expanded, [
+                                3, 4, 5, 9, 10, 11, 12, 1, 2]),  # 其他季节
+                        # 夏季
+                        np.isin(months_expanded, [6, 7, 8])
                     ]
 
                     group_names = [
@@ -784,7 +794,8 @@ class ResultVisualizer:
 
                     # 统计各组数据量
                     season_counts = [np.sum(mask) for mask in group_masks]
-                    print(f"  季节分组: 非夏季{season_counts[0]}个点, 夏季{season_counts[1]}个点")
+                    print(
+                        f"  季节分组: 非夏季{season_counts[0]}个点, 夏季{season_counts[1]}个点")
 
             except Exception as e:
                 print(f"  ⚠ 季节分组失败: {e}")
@@ -801,7 +812,8 @@ class ResultVisualizer:
                 f'Low Temp (<{group_threshold}°C)',
                 f'High Temp (≥{group_threshold}°C)'
             ]
-            print(f"  温度分组: 低温{np.sum(group_masks[0])}个点, 高温{np.sum(group_masks[1])}个点")
+            print(
+                f"  温度分组: 低温{np.sum(group_masks[0])}个点, 高温{np.sum(group_masks[1])}个点")
 
         colors = ['#5F9EA0', '#FF7F50']
         colors_line = ['#4682B4', '#FF6347']
@@ -834,8 +846,8 @@ class ResultVisualizer:
 
             # 散点图
             ax_main.scatter(label_group, pred_group,
-                           alpha=0.5, s=20, color='none',
-                           edgecolors=colors[i], label=group_names[i])
+                            alpha=0.5, s=20, color='none',
+                            edgecolors=colors[i], label=group_names[i])
 
             # 线性回归拟合
             if len(label_group) >= 2:
@@ -846,7 +858,7 @@ class ResultVisualizer:
                 x_line = np.linspace(label_group.min(), label_group.max(), 100)
                 y_line = p(x_line)
                 ax_main.plot(x_line, y_line, color=colors_line[i],
-                            linewidth=2, linestyle='--', alpha=0.8)
+                             linewidth=2, linestyle='--', alpha=0.8)
 
                 # 严格计算95%置信区间
                 # 基于线性回归的预测区间公式
@@ -854,7 +866,8 @@ class ResultVisualizer:
                 residuals = pred_group - p(label_group)
 
                 # 残差标准误差 (MSE的平方根)
-                mse = np.sum(residuals**2) / (n - 2)  # 自由度 = n - 2 (两个参数: 斜率和截距)
+                # 自由度 = n - 2 (两个参数: 斜率和截距)
+                mse = np.sum(residuals**2) / (n - 2)
                 se = np.sqrt(mse)
 
                 # t分布临界值 (95%置信水平, 双侧)
@@ -880,11 +893,12 @@ class ResultVisualizer:
                 center_width = t_critical * se * np.sqrt(1 + 1/n)
                 edge_width = margin[0]  # 边缘宽度
                 width_ratio = edge_width / center_width
-                print(f"    {group_names[i]}: 中心宽度={center_width:.3f}°C, 边缘宽度={edge_width:.3f}°C, 比值={width_ratio:.2f}")
+                print(
+                    f"    {group_names[i]}: 中心宽度={center_width:.3f}°C, 边缘宽度={edge_width:.3f}°C, 比值={width_ratio:.2f}")
 
                 # 绘制置信区间
                 ax_main.fill_between(x_line, y_line - margin, y_line + margin,
-                                    color=colors[i], alpha=0.15, label=f'95% PI ({group_names[i]})')
+                                     color=colors[i], alpha=0.15, label=f'95% PI ({group_names[i]})')
 
                 # 计算R²
                 ss_res = np.sum(residuals**2)
@@ -894,13 +908,13 @@ class ResultVisualizer:
                 # R²文本标注
                 text_y = 0.95 - i * 0.06
                 ax_main.text(0.05, text_y,
-                            f'{group_names[i]}: $R^2$={r2:.3f}',
-                            transform=ax_main.transAxes,
-                            fontsize=fontsize, color=colors_text[i],
-                            # weight='bold',
-                            # bbox=dict(boxstyle='round', facecolor='white',
-                            #          edgecolor=colors[i], alpha=0.8, linewidth=2)
-                                     )
+                             f'{group_names[i]}: $R^2$={r2:.3f}',
+                             transform=ax_main.transAxes,
+                             fontsize=fontsize, color=colors_text[i],
+                             # weight='bold',
+                             # bbox=dict(boxstyle='round', facecolor='white',
+                             #          edgecolor=colors[i], alpha=0.8, linewidth=2)
+                             )
 
         # 对角线 y=x 和坐标轴范围设置
         min_val = min(label.min(), pred.min())
@@ -917,7 +931,7 @@ class ResultVisualizer:
 
         # 绘制对角线
         ax_main.plot([axis_min, axis_max], [axis_min, axis_max],
-                    'k--', linewidth=1.5, alpha=0.5, zorder=0, label='y=x')
+                     'k--', linewidth=1.5, alpha=0.5, zorder=0, label='y=x')
 
         # 5. 顶部密度曲线 (KDE)
         x_range = np.linspace(label.min(), label.max(), 200)
@@ -933,9 +947,9 @@ class ResultVisualizer:
                 density_x = kde_x(x_range)
 
                 ax_top.fill_between(x_range, 0, density_x,
-                                   color=colors[i], alpha=0.4)
+                                    color=colors[i], alpha=0.4)
                 ax_top.plot(x_range, density_x,
-                           color=colors[i], linewidth=2)
+                            color=colors[i], linewidth=2)
             except Exception as e:
                 print(f"  ⚠ KDE计算失败 ({group_names[i]}): {e}")
 
@@ -957,9 +971,9 @@ class ResultVisualizer:
                 density_y = kde_y(y_range)
 
                 ax_right.fill_betweenx(y_range, 0, density_y,
-                                      color=colors[i], alpha=0.4)
+                                       color=colors[i], alpha=0.4)
                 ax_right.plot(density_y, y_range,
-                             color=colors[i], linewidth=2)
+                              color=colors[i], linewidth=2)
             except Exception as e:
                 print(f"  ⚠ KDE计算失败 ({group_names[i]}): {e}")
 
@@ -974,7 +988,7 @@ class ResultVisualizer:
 
         ax_main.grid(True, alpha=0.2, linestyle='--', linewidth=0.8)
         ax_main.legend(loc='lower right', fontsize=fontsize, framealpha=0.95,
-                      edgecolor='gray', fancybox=True)
+                       edgecolor='gray', fancybox=True)
         ax_main.set_aspect('equal', adjustable='box')
 
         # 隐藏边缘子图的刻度标签
@@ -983,7 +997,7 @@ class ResultVisualizer:
 
         # 8. 保存
         plt.savefig(save_path, dpi=DPI, bbox_inches='tight',
-                   facecolor='white', edgecolor='none')
+                    facecolor='white', edgecolor='none')
         plt.close(fig)
 
     def plot_error_distribution(self, pred_step, save_path):
@@ -1007,17 +1021,17 @@ class ResultVisualizer:
 
         # 直方图
         n, bins, patches = ax.hist(errors, bins=50, color='steelblue',
-                                    alpha=0.7, edgecolor='black', linewidth=0.5)
+                                   alpha=0.7, edgecolor='black', linewidth=0.5)
 
         # 均值线
         ax.axvline(mean_error, color='red', linestyle='-',
-                  linewidth=2, label=f'Mean (Bias): {mean_error:+.4f}°C')
+                   linewidth=2, label=f'Mean (Bias): {mean_error:+.4f}°C')
 
         # ±1σ线
         ax.axvline(mean_error + std_error, color='red', linestyle='--',
-                  linewidth=1.5, label=f'+1σ: {mean_error+std_error:+.4f}°C', alpha=0.7)
+                   linewidth=1.5, label=f'+1σ: {mean_error+std_error:+.4f}°C', alpha=0.7)
         ax.axvline(mean_error - std_error, color='red', linestyle='--',
-                  linewidth=1.5, label=f'-1σ: {mean_error-std_error:+.4f}°C', alpha=0.7)
+                   linewidth=1.5, label=f'-1σ: {mean_error-std_error:+.4f}°C', alpha=0.7)
 
         # 设置标签
         ax.set_xlabel('Error (Prediction - Ground Truth, °C)', fontsize=11)
@@ -1046,7 +1060,7 @@ class ResultVisualizer:
         fig, axes = plt.subplots(2, 2, figsize=(14, 10), dpi=DPI)
 
         metric_names = ['rmse_per_station', 'mae_per_station',
-                       'r2_per_station', 'bias_per_station']
+                        'r2_per_station', 'bias_per_station']
         titles = ['RMSE (°C)', 'MAE (°C)', 'R²', 'Bias (°C)']
         colors = ['#e74c3c', '#f39c12', '#2ecc71', '#3498db']
 
@@ -1057,12 +1071,12 @@ class ResultVisualizer:
 
             # 柱状图
             ax.bar(range(self.num_stations), values, color=color,
-                  alpha=0.7, edgecolor='black', linewidth=0.5)
+                   alpha=0.7, edgecolor='black', linewidth=0.5)
 
             # 平均线
             mean_val = np.mean(values)
             ax.axhline(mean_val, color='blue', linestyle='--',
-                      linewidth=2, label=f'Mean: {mean_val:.4f}', alpha=0.7)
+                       linewidth=2, label=f'Mean: {mean_val:.4f}', alpha=0.7)
 
             # 设置标签
             ax.set_xlabel('Station ID', fontsize=10)
@@ -1070,7 +1084,7 @@ class ResultVisualizer:
             ax.set_title(f'{title} Comparison', fontsize=11, pad=10)
             ax.set_xticks(range(0, self.num_stations, 2))
             ax.set_xticklabels([str(i) for i in range(0, self.num_stations, 2)],
-                              fontsize=8)
+                               fontsize=8)
             ax.grid(True, axis='y', alpha=0.3, linestyle='--')
             ax.legend(loc='best', fontsize=9)
 
@@ -1118,8 +1132,8 @@ class ResultVisualizer:
 
         # 主线:整体RMSE
         ax.plot([s+1 for s in steps], overall_rmse, 'o-',
-               color='#e74c3c', linewidth=2.5, markersize=8,
-               label='Overall RMSE', alpha=0.8)
+                color='#e74c3c', linewidth=2.5, markersize=8,
+                label='Overall RMSE', alpha=0.8)
 
         # 辅助线:部分代表性站点(可选)
         sample_stations_ids = [0, 7, 14, 21, 27]
@@ -1132,13 +1146,14 @@ class ResultVisualizer:
                     for step in steps
                 ]
                 ax.plot([s+1 for s in steps], rmse_by_step, 's--',
-                       color=color, linewidth=1.5, markersize=5,
-                       label=f'Station {station_id}', alpha=0.6)
+                        color=color, linewidth=1.5, markersize=5,
+                        label=f'Station {station_id}', alpha=0.6)
 
         # 设置标签
         ax.set_xlabel('Prediction Step (Days)', fontsize=11)
         ax.set_ylabel('RMSE (°C)', fontsize=11)
-        ax.set_title('RMSE Comparison Across Prediction Steps', fontsize=12, pad=15)
+        ax.set_title('RMSE Comparison Across Prediction Steps',
+                     fontsize=12, pad=15)
         ax.set_xticks([s+1 for s in steps])
         ax.grid(True, alpha=0.3, linestyle='--')
         ax.legend(loc='best', fontsize=10)
@@ -1165,13 +1180,14 @@ class ResultVisualizer:
 
         # 主线:整体MAE
         ax.plot([s+1 for s in steps], overall_mae, 'o-',
-               color='#f39c12', linewidth=2.5, markersize=8,
-               label='Overall MAE', alpha=0.8)
+                color='#f39c12', linewidth=2.5, markersize=8,
+                label='Overall MAE', alpha=0.8)
 
         # 设置标签
         ax.set_xlabel('Prediction Step (Days)', fontsize=11)
         ax.set_ylabel('MAE (°C)', fontsize=11)
-        ax.set_title('MAE Comparison Across Prediction Steps', fontsize=12, pad=15)
+        ax.set_title('MAE Comparison Across Prediction Steps',
+                     fontsize=12, pad=15)
         ax.set_xticks([s+1 for s in steps])
         ax.grid(True, alpha=0.3, linestyle='--')
         ax.legend(loc='best', fontsize=10)
@@ -1255,16 +1271,20 @@ class ResultVisualizer:
         self.plot_rmse_barplot(metrics, step_dir / 'rmse_barplot.png')
         print("  ✓ RMSE柱状图已生成")
 
-        self.plot_pred_vs_true_scatter(pred_step, step_dir / 'pred_vs_true.png')
+        self.plot_pred_vs_true_scatter(
+            pred_step, step_dir / 'pred_vs_true.png')
         print("  ✓ 预测vs真实散点图已生成")
 
-        self.plot_pred_vs_true_marginal(pred_step, step_dir / 'pred_vs_true_marginal.png')
+        self.plot_pred_vs_true_marginal(
+            pred_step, step_dir / 'pred_vs_true_marginal.png')
         print("  ✓ 边缘密度分布图已生成")
 
-        self.plot_error_distribution(pred_step, step_dir / 'error_distribution.png')
+        self.plot_error_distribution(
+            pred_step, step_dir / 'error_distribution.png')
         print("  ✓ 误差分布图已生成")
 
-        self.plot_metrics_comparison(metrics, step_dir / 'metrics_comparison.png')
+        self.plot_metrics_comparison(
+            metrics, step_dir / 'metrics_comparison.png')
         print("  ✓ 多指标对比图已生成")
 
         # 3. 保存数据
@@ -1313,13 +1333,15 @@ class ResultVisualizer:
             summary_dir = output_dir / 'summary'
             summary_dir.mkdir(exist_ok=True)
 
-            self.plot_rmse_by_step(all_metrics, summary_dir / 'rmse_by_step.png')
+            self.plot_rmse_by_step(
+                all_metrics, summary_dir / 'rmse_by_step.png')
             print("  ✓ RMSE步长对比图已生成")
 
             self.plot_mae_by_step(all_metrics, summary_dir / 'mae_by_step.png')
             print("  ✓ MAE步长对比图已生成")
 
-            self.save_summary_metrics(all_metrics, summary_dir / 'metrics_by_step.csv')
+            self.save_summary_metrics(
+                all_metrics, summary_dir / 'metrics_by_step.csv')
 
         # 5. 打印完成信息
         print(f"\n{'='*80}")
@@ -1331,7 +1353,7 @@ class ResultVisualizer:
         for step in pred_steps:
             step_dir = output_dir / f'step_{step + 1}'
             num_ts_plots = (self.num_stations if PLOT_ALL_STATIONS
-                           else len(SAMPLE_STATIONS))
+                            else len(SAMPLE_STATIONS))
             print(f"  - 第{step+1}步预测: {step_dir}")
             print(f"    · {num_ts_plots}张时间序列图")
             print(f"    · 6张汇总分析图")
@@ -1353,8 +1375,8 @@ def visualize_checkpoint(checkpoint_dir,
                          save_intermediate_data=True,
                          dpi=300,
                          use_basemap=True,
-                         add_scalebar=True,
-                         add_north_arrow=True,
+                         add_scalebar=False,
+                         add_north_arrow=False,
                          use_chinese=True,
                          silent=False):
     """
@@ -1456,7 +1478,8 @@ def visualize_checkpoint(checkpoint_dir,
             raise ValueError(f"Checkpoint目录不存在: {checkpoint_dir}")
 
         # 检查必需文件
-        required_files = ['test_predict.npy', 'test_label.npy', 'test_time.npy']
+        required_files = ['test_predict.npy',
+                          'test_label.npy', 'test_time.npy']
         missing_files = [f for f in required_files
                          if not (checkpoint_path / f).exists()]
 
@@ -1563,7 +1586,8 @@ def main():
     print(f"  Checkpoint: {CHECKPOINT_DIR}")
     print(f"  输出目录: {OUTPUT_DIR}")
     print(f"  预测步长: {PRED_STEPS}")
-    print(f"  绘制站点: {'全部28个' if PLOT_ALL_STATIONS else f'{len(SAMPLE_STATIONS)}个'}")
+    print(
+        f"  绘制站点: {'全部28个' if PLOT_ALL_STATIONS else f'{len(SAMPLE_STATIONS)}个'}")
     print(f"  时间采样: 每{TIME_SAMPLE_RATE}个点")
     print(f"  保存数据: {'是' if SAVE_INTERMEDIATE_DATA else '否'}")
     print(f"  图表DPI: {DPI}")
