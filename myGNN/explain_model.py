@@ -222,7 +222,8 @@ def main():
                 'NDVI',                       # 19
                 'sfc_pres', 'sfc_solar',      # 20-21
                 'u_wind', 'v_wind',           # 22-23
-                'VegHeight_mean', 'VegHeight_std',  # 24-25
+                'total_precip',               # 24
+                'VegHeight_mean', 'VegHeight_std',  # 25-26
             ]
 
             # 根据动态特征索引提取名称
@@ -254,14 +255,15 @@ def main():
                 'NDVI',                       # 19
                 'sfc_pres', 'sfc_solar',      # 20-21
                 'u_wind', 'v_wind',           # 22-23
-                'VegHeight_mean', 'VegHeight_std',  # 24-25
+                'total_precip',               # 24
+                'VegHeight_mean', 'VegHeight_std',  # 25-26
             ]
 
             # 添加时间编码
             if config.add_temporal_encoding:
                 feature_names.extend(['doy_sin', 'doy_cos', 'month_sin', 'month_cos'])
 
-            print(f"  ✓ 原模式特征名称: {len(feature_names)}个 (26基础 + 时间编码)")
+            print(f"  ✓ 原模式特征名称: {len(feature_names)}个 (27基础 + 时间编码)")
 
         # ============ 验证维度一致性 ============
         expected_dim = config.in_dim

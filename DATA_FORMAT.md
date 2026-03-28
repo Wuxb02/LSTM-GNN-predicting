@@ -33,7 +33,7 @@ gnn_predict/
 │   │   ├── merged_data_2016_2000m.csv            # 2016年数据 (366天 × 28站 = 10,248行, 闰年)
 │   │   └── merged_data_2017_2000m.csv            # 2017年数据 (365天 × 28站 = 10,220行)
 │   │
-│   ├── real_weather_data_2010_2017.npy           # 转换后的真实数据 [2922, 28, 28] ⭐
+│   ├── real_weather_data_2010_2017.npy           # 转换后的真实数据 [2922, 28, 29] ⭐
 │   ├── station_info.npy                          # 气象站信息 [28, 4] ⭐
 │   ├── convert_real_data.py                      # 数据转换脚本
 │   └── README.md                                 # 数据目录说明
@@ -79,14 +79,14 @@ gnn_predict/
 #### 2.1.1 数组维度
 
 ```python
-shape: [时间步, 气象站数, 特征数] = [2922, 28, 28]
+shape: [时间步, 气象站数, 特征数] = [2922, 28, 29]
 ```
 
 - **维度0 (时间步)**: 2922天 (2010-01-01 至 2017-12-31, 包含2个闰年)
 - **维度1 (气象站)**: 28个气象站，按站点ID升序排序
-- **维度2 (特征)**: 28个特征（完整特征集）
+- **���度2 (特征)**: 29个特征（完整特征集）
 
-#### 2.1.2 特征顺序与索引（28个特征）
+#### 2.1.2 特征顺序与索引（29个特征）
 
 | 索引 | 特征名 | 类型 | 单位 | 典型范围 | 说明 |
 |:----:|--------|------|:----:|---------|------|
@@ -120,33 +120,34 @@ shape: [时间步, 气象站数, 特征数] = [2922, 28, 28]
 | 21 | `surface_solar_radiation` | 气象 | J/m² | 1.5M-20M | ERA5地表太阳辐射下行通量（日累积） |
 | 22 | `u_wind` | 气象 | m/s | - | 10m高度U分量风速（东西方向） |
 | 23 | `v_wind` | 气象 | m/s | - | 10m高度V分量风速（南北方向） |
+| 24 | `total_precipitation_sum` | 气象 | m | - | ERA5累计降水量（日累积） |
 | **植被高度特征** ⭐新增 |
-| 24 | `VegHeight_mean` | 环境 | m | - | 植被高度均值 |
-| 25 | `VegHeight_std` | 环境 | m | - | 植被高度标准差 |
+| 25 | `VegHeight_mean` | 环境 | m | - | 植被高度均值 |
+| 26 | `VegHeight_std` | 环境 | m | - | 植被高度标准差 |
 | **时间特征（转换为4维sin/cos编码）** ⭐⭐⭐ |
-| 26 | `doy` | 时间 | - | 1-366 | 年内日序数（Day of Year） |
-| 27 | `month` | 时间 | - | 1-12 | 月份 |
+| 27 | `doy` | 时间 | - | 1-366 | 年内日序数（Day of Year） |
+| 28 | `month` | 时间 | - | 1-12 | 月份 |
 
 #### 2.1.3 特征分类汇总
 
 **静态特征（站点固定，不随时间变化）:**
 - 空间: `x, y, height` (0-2)
 - 城市环境: `BH, BHstd, SCD, PLA, λp, λb, POI, POW, POV` (10-18)
-- 植被: `NDVI, VegHeight_mean, VegHeight_std` (19, 24-25)
+- 植被: `NDVI, VegHeight_mean, VegHeight_std` (19, 25-26)
 
 **动态特征（每天变化）:**
 - 温度: `tmin, tmax, tave` (3-5)
 - 气象要素: `pre, prs, rh, win` (6-9)
-- ERA5数据: `surface_pressure, surface_solar_radiation, u_wind, v_wind` (20-23)
+- ERA5数据: `surface_pressure, surface_solar_radiation, u_wind, v_wind, total_precipitation_sum` (20-24)
 
 **时间特征（周期性）:**
-- `doy, month` (26-27) → 在dataset.py中自动转换为4维sin/cos编码
+- `doy, month` (27-28) → 在dataset.py中自动转换为4维sin/cos编码
 
 #### 2.1.4 数据类型与存储
 
 ```python
 dtype: np.float32  # 单精度浮点数，节省存储空间
-size: ~9.2 MB      # 2922 × 28 × 28 × 4 bytes = 9,175,296 bytes
+size: ~9.6 MB      # 2922 × 28 × 29 × 4 bytes = 9,512,256 bytes
 ```
 
 #### 2.1.5 访问示例
@@ -156,7 +157,7 @@ import numpy as np
 
 # 加载数据
 data = np.load('data/real_weather_data_2010_2017.npy')
-print(f"数据形状: {data.shape}")  # (2922, 28, 28)
+print(f"数据形状: {data.shape}")  # (2922, 28, 29)
 
 # 获取第10天、所有气象站的最高气温
 tmax_day10 = data[9, :, 4]  # shape: (28,) - 注意tmax索引为4
@@ -169,8 +170,8 @@ lon = data[0, :, 0]  # shape: (28,) - 经度在时间维度上恒定
 lat = data[0, :, 1]  # shape: (28,)
 
 # 获取时间特征（doy和month）
-doy_all = data[:, :, 26]   # shape: (2922, 28) - 年内日序数
-month_all = data[:, :, 27] # shape: (2922, 28) - 月份
+doy_all = data[:, :, 27]   # shape: (2922, 28) - 年内日序数
+month_all = data[:, :, 28] # shape: (2922, 28) - 月份
 
 # 提取训练集数据（2010-2015年）
 train_data = data[0:2191, :, :]  # shape: (2191, 28, 28)
@@ -244,9 +245,9 @@ distances = cdist(coords, coords, metric='euclidean')  # shape: (28, 28)
 - **每行含义**: 一个气象站在某一天的观测数据
 - **数据组织**: 按日期和气象站ID排列
 
-### 3.2 CSV字段定义（29个列）
+### 3.2 CSV字段定义（30个列）
 
-CSV文件包含29个列（包括id, doy, month等元数据），NPY数组保留28个特征列（排除id）。
+CSV文件包含30个列（包括id, doy, month等元数据），NPY数组保留29个特征列（排除id）。
 
 | CSV列 | NPY索引 | 字段名 | 数据类型 | 单位 | 说明 |
 |:----:|:------:|--------|---------|------|------|
@@ -264,7 +265,7 @@ CSV文件包含29个列（包括id, doy, month等元数据），NPY数组保留2
 | 12 | 10 | `BH` | float | m | 建筑平均高度 |
 | 13 | 11 | `BHstd` | float | m | 建筑高度标准差 |
 | 14 | 12 | `SCD` | float | - | 地表覆盖密度 |
-| 15 | 13 | `PLA` | float | - | 路面铺装率 |
+| 15 | 13 | `PLA` | float | - | 路��铺装率 |
 | 16 | 14 | `λp` | float | - | 天空开阔度参数λp |
 | 17 | 15 | `λb` | float | - | 天空开阔度参数λb |
 | 18 | 16 | `POI` | float | - | 兴趣点密度 |
@@ -275,15 +276,16 @@ CSV文件包含29个列（包括id, doy, month等元数据），NPY数组保留2
 | 23 | 21 | `surface_solar_radiation` | float | J/m² | ERA5太阳辐射 |
 | 24 | 22 | `u_component_of_wind_10m` | float | m/s | U分量风速 |
 | 25 | 23 | `v_component_of_wind_10m` | float | m/s | V分量风速 |
-| 26 | 24 | `VegHeight_mean` | float | m | 植被高度均值 |
-| 27 | 25 | `VegHeight_std` | float | m | 植被高度标准差 |
-| 28 | 26 | `doy` | int | - | 年内日序数 |
-| 29 | 27 | `month` | int | - | 月份 |
+| 26 | 24 | `total_precipitation_sum` | float | m | ERA5累计降水量 |
+| 27 | 25 | `VegHeight_mean` | float | m | 植被高度均值 |
+| 28 | 26 | `VegHeight_std` | float | m | 植被高度标准差 |
+| 29 | 27 | `doy` | int | - | 年内日序数 |
+| 30 | 28 | `month` | int | - | 月份 |
 
 ### 3.3 数据示例
 
 ```csv
-id,x,y,height,tmin,tmax,tave,pre,prs,rh,win,BH,BHstd,SCD,PLA,λp,λb,POI,POW,POV,NDVI,surface_pressure,surface_solar_radiation,u_wind,v_wind,VegHeight_mean,VegHeight_std,doy,month
+id,x,y,height,tmin,tmax,tave,pre,prs,rh,win,BH,BHstd,SCD,PLA,λp,λb,POI,POW,POV,NDVI,surface_pressure,surface_solar_radiation,u_wind,v_wind,total_precipitation_sum,VegHeight_mean,VegHeight_std,doy,month
 59264,111.51,23.4,45.3,11.2,18.3,14.5,3.4,1008.5,92.0,1.2,12.81,9.87,0.075,0.051,0.15,0.12,0.108,0.0044,0.888,0.459,99701.5,5246494.0,2.3,1.1,8.5,2.1,1,1
 59264,111.51,23.4,45.3,12.1,19.9,15.8,7.8,1007.3,94.0,2.3,12.81,9.87,0.075,0.051,0.15,0.12,0.108,0.0044,0.888,0.457,99749.5,1576552.0,3.1,0.9,8.5,2.1,2,1
 59269,111.82,23.21,28.6,10.8,19.2,14.9,2.1,1009.1,88.0,1.5,15.34,12.45,0.124,0.089,0.18,0.14,0.112,0.0045,0.756,0.412,99823.2,5389721.0,1.8,1.3,9.2,2.3,1,1
@@ -329,8 +331,8 @@ month_cos = cos(month_phase)
 
 ```python
 # 步骤1: 提取原始时间特征
-doy = MetData[:, :, 26]    # shape: (2922, 28)
-month = MetData[:, :, 27]  # shape: (2922, 28)
+doy = MetData[:, :, 27]    # shape: (2922, 28)
+month = MetData[:, :, 28]  # shape: (2922, 28)
 
 # 步骤2: 计算周期相位
 T, N, _ = MetData.shape
@@ -345,25 +347,25 @@ doy_cos = np.cos(year_phase).astype(np.float32)
 month_sin = np.sin(month_phase).astype(np.float32)
 month_cos = np.cos(month_phase).astype(np.float32)
 
-# 步骤4: 移除原始时间特征（索引26-27）
-base_features = MetData[:, :, :26]  # shape: (2922, 28, 26)
+# 步骤4: 移除原始时间特征（索引27-28）
+base_features = MetData[:, :, :27]  # shape: (2922, 28, 27)
 
 # 步骤5: 拼接4维时间编码
 temporal_encoding = np.stack([doy_sin, doy_cos, month_sin, month_cos],
                              axis=-1)  # shape: (2922, 28, 4)
 final_data = np.concatenate([base_features, temporal_encoding],
-                            axis=-1)  # shape: (2922, 28, 30)
+                            axis=-1)  # shape: (2922, 28, 31)
 
-# 最终输入维度: 26 (基础特征) + 4 (时间编码) = 30
+# 最终输入维度: 27 (基础特征) + 4 (时间编码) = 31
 ```
 
 ### 4.4 特征维度变化
 
 ```
-原始数据: [2922, 28, 28]
+原始数据: [2922, 28, 29]
      │
-     ├─ 移除doy和month (索引26-27)
-     │   → [2922, 28, 26] 基础特征
+     ├─ 移除doy和month (索引27-28)
+     │   → [2922, 28, 27] 基础特征
      │
      ├─ 生成4维时间编码
      │   - doy_sin, doy_cos (年周期)
@@ -371,7 +373,7 @@ final_data = np.concatenate([base_features, temporal_encoding],
      │   → [2922, 28, 4] 时间编码
      │
      └─ 拼接
-         → [2922, 28, 30] 最终输入
+         → [2922, 28, 31] 最终输入
 ```
 
 ### 4.5 代码示例
@@ -380,7 +382,7 @@ final_data = np.concatenate([base_features, temporal_encoding],
 from myGNN.dataset import WeatherGraphDataset, create_dataloaders
 
 # 加载数据
-MetData = np.load('data/real_weather_data_2010_2017.npy')  # [2922, 28, 28]
+MetData = np.load('data/real_weather_data_2010_2017.npy')  # [2922, 28, 29]
 
 # 创建数据集（自动进行4维时间编码）
 train_loader, val_loader, test_loader = create_dataloaders(
@@ -391,8 +393,8 @@ train_loader, val_loader, test_loader = create_dataloaders(
 # 查看数据维度
 for batch in train_loader:
     print(f"节点特征形状: {batch.x.shape}")
-    # 输出: torch.Size([28, 7, 30]) - [nodes, hist_len, features]
-    # 30 = 26 (基础特征) + 4 (时间编码)
+    # 输出: torch.Size([28, 7, 31]) - [nodes, hist_len, features]
+    # 31 = 27 (基础特征) + 4 (时间编码)
     break
 ```
 
@@ -409,9 +411,9 @@ import numpy as np
 data = np.load('data/real_weather_data_2010_2017.npy')
 station_info = np.load('data/station_info.npy')
 
-print(f"数据形状: {data.shape}")           # (2922, 28, 28)
+print(f"数据形状: {data.shape}")           # (2922, 28, 29)
 print(f"气象站信息: {station_info.shape}") # (28, 4)
-print(f"特征数量: {data.shape[2]}")        # 28
+print(f"特征数量: {data.shape[2]}")        # 29
 ```
 
 ### 5.2 数据探索
@@ -473,17 +475,17 @@ train_loader, val_loader, test_loader = create_dataloaders(
 # 5. 查看数据维度
 for batch in train_loader:
     print(f"批次大小: {batch.num_graphs}")
-    print(f"节点特征: {batch.x.shape}")  # [nodes, hist_len, 30]
+    print(f"节点特征: {batch.x.shape}")  # [nodes, hist_len, 31]
     print(f"边索引: {batch.edge_index.shape}")  # [2, num_edges]
     print(f"标签: {batch.y.shape}")  # [nodes, pred_len]
     break
 
 # 最终输入维度说明:
-# batch.x.shape[-1] = 30
-# = 26 (基础特征: x,y,height,tmin,tmax,tave,pre,prs,rh,win,
+# batch.x.shape[-1] = 31
+# = 27 (基础特征: x,y,height,tmin,tmax,tave,pre,prs,rh,win,
 #               BH,BHstd,SCD,PLA,λp,λb,POI,POW,POV,NDVI,
 #               surface_pressure,surface_solar_radiation,u_wind,v_wind,
-#               VegHeight_mean,VegHeight_std)
+#               total_precipitation_sum,VegHeight_mean,VegHeight_std)
 # + 4 (时间编码: doy_sin,doy_cos,month_sin,month_cos)
 ```
 
@@ -530,8 +532,8 @@ config = Config()
 
 # 方法1: 使用所有基础特征（默认）
 config.feature_indices = None
-# 自动使用索引0-25（移除doy和month）
-# 加上4维时间编码，最终维度=30
+# 自动使用索引0-26（移除doy和month）
+# 加上4维时间编码，最终维度=31
 
 # 方法2: 仅使用核心气象特征
 config.feature_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -541,11 +543,11 @@ config.feature_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 # 加上4维时间编码，最终维度=14
 
 # 方法3: 使用所有特征（包括城市环境）
-config.feature_indices = list(range(26))  # 0-25
-# 加上4维时间编码，最终维度=30
+config.feature_indices = list(range(27))  # 0-26
+# 加上4维时间编码，最终维度=31
 
 # 方法4: 自定义特征组合
-config.feature_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 19, 24, 25]
+config.feature_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 19, 25, 26]
 # 核心气象 + NDVI + 植被高度
 # 加上4维时间编码，最终维度=17
 ```
@@ -590,17 +592,17 @@ CSV原始数据 (8个文件, 2010-2017年)
      ├─ [data/convert_real_data.py]
      │   ├─ 读取并合并所有CSV
      │   ├─ 提取气象站信息
-     │   ├─ 转换为NPY数组 [2922, 28, 28]
+     │   ├─ 转换为NPY数组 [2922, 28, 29]
      │   └─ 保存NPY文件
      │
      ↓
 NPY数组文件
-├── real_weather_data_2010_2017.npy [2922, 28, 28]
+├── real_weather_data_2010_2017.npy [2922, 28, 29]
 └── station_info.npy [28, 4]
      │
      ├─ [myGNN/dataset.py]
-     │   ├─ 移除doy和month (索引26-27)
-     │   │   → [2922, 28, 26] 基础特征
+     │   ├─ 移除doy和month (索引27-28)
+     │   │   → [2922, 28, 27] 基础特征
      │   │
      │   ├─ 生成4维时间编码
      │   │   - doy → doy_sin, doy_cos (年周期)
@@ -608,7 +610,7 @@ NPY数组文件
      │   │   → [2922, 28, 4] 时间编码
      │   │
      │   ├─ 拼接特征
-     │   │   → [2922, 28, 30] 完整特征
+     │   │   → [2922, 28, 31] 完整特征
      │   │
      │   ├─ 滑动窗口切分
      │   │   hist_len=7, pred_len=3
@@ -624,7 +626,7 @@ NPY数组文件
      │
      ↓
 DataLoader批次
-├── batch.x: [nodes, hist_len, 30] 节点特征
+├── batch.x: [nodes, hist_len, 31] 节点特征
 ├── batch.y: [nodes, pred_len] 目标标签
 ├── batch.edge_index: [2, num_edges] 边索引
 └── batch.edge_attr: [num_edges, 1] 边权重
@@ -685,10 +687,10 @@ python convert_real_data.py
 数组维度:
   时间步数: 2922
   气象站数: 28
-  特征数: 28
+  特征数: 29
 
 数据统计:
-  形状: (2922, 28, 28)
+  形状: (2922, 28, 29)
   数据类型: float32
   最小值: 0.00
   最大值: 20000000.00
@@ -697,7 +699,7 @@ python convert_real_data.py
 步骤 4/4: 保存文件
 --------------------------------------------------------------------------------
 ✓ 保存数据数组: data/real_weather_data_2010_2017.npy
-  形状: (2922, 28, 28)
+  形状: (2922, 28, 29)
   大小: 9.17 MB
 
 ✓ 保存气象站信息: data/station_info.npy
@@ -719,7 +721,7 @@ data = np.load('data/real_weather_data_2010_2017.npy')
 station_info = np.load('data/station_info.npy')
 
 # 2. 检查形状
-assert data.shape == (2922, 28, 28), f"数据形状错误: {data.shape}"
+assert data.shape == (2922, 28, 29), f"数据形状错误: {data.shape}"
 assert station_info.shape == (28, 4), f"气象站信息形状错误: {station_info.shape}"
 
 # 3. 检查缺失值
@@ -731,7 +733,7 @@ tmax = data[:, :, 4]
 assert tmax.min() > -20 and tmax.max() < 50, f"温度范围异常: {tmax.min():.2f} - {tmax.max():.2f}"
 
 # 5. 检查时间连续性
-doy = data[:, 0, 26]  # 第一个站点的doy序列
+doy = data[:, 0, 27]  # 第一个站点的doy序列
 print(f"DOY范围: {doy.min():.0f} - {doy.max():.0f}")
 assert doy.min() >= 1 and doy.max() <= 366, "DOY范围异常"
 
@@ -773,8 +775,8 @@ year_phase = 2 * np.pi * (doy - 1) / days_in_year
 **A:** NPY格式移除了元数据列:
 - CSV包含29列（含id, doy, month等）
 - NPY保留28列（排除id）
-- dataset.py进一步处理时移除doy和month(索引26-27),转换为4维sin/cos编码
-- 最终输入维度: 26(基础特征) + 4(时间编码) = 30
+- dataset.py进一步处理时移除doy和month(索引27-28),转换为4维sin/cos编码
+- 最终输入维度: 27(基础特征) + 4(时间编码) = 31
 
 ### Q4: 如何选择预测目标?
 
@@ -911,7 +913,7 @@ config.feature_indices = None  # 26特征
 
 ## 附录
 
-### A. 特征完整列表（28个）
+### A. 特征完整列表（29个）
 
 | 索引 | 特征名 | 类型 | 单位 | 是否静态 | 说明 |
 |:----:|--------|------|:----:|:--------:|------|
@@ -925,7 +927,7 @@ config.feature_indices = None  # 26特征
 | 7 | prs | 气象 | hPa | ✗ | 气压 |
 | 8 | rh | 气象 | % | ✗ | 相对湿度 |
 | 9 | win | 气象 | m/s | ✗ | 风速 |
-| 10 | BH | 环境 | m | ✓ | 建筑平均高度 |
+| 10 | BH | 环境 | m | ✓ | ���筑平均高度 |
 | 11 | BHstd | 环境 | m | ✓ | 建筑高度标准差 |
 | 12 | SCD | 环境 | - | ✓ | 地表覆盖密度 |
 | 13 | PLA | 环境 | - | ✓ | 路面铺装率 |
@@ -939,10 +941,11 @@ config.feature_indices = None  # 26特征
 | 21 | surface_solar_radiation | 气象 | J/m² | ✗ | ERA5太阳辐射 |
 | 22 | u_wind | 气象 | m/s | ✗ | 10m高度U分量风速 |
 | 23 | v_wind | 气象 | m/s | ✗ | 10m高度V分量风速 |
-| 24 | VegHeight_mean | 环境 | m | ✓ | 植被高度均值 |
-| 25 | VegHeight_std | 环境 | m | ✓ | 植被高度标准差 |
-| 26 | doy | 时间 | - | ✗ | 年内日序数（转换为sin/cos） |
-| 27 | month | 时间 | - | ✗ | 月份（转换为sin/cos） |
+| 24 | total_precipitation_sum | 气象 | m | ✗ | ERA5累计降水量 |
+| 25 | VegHeight_mean | 环境 | m | ✓ | 植被高度均值 |
+| 26 | VegHeight_std | 环境 | m | ✓ | 植被高度标准差 |
+| 27 | doy | 时间 | - | ✗ | 年内日序数（转换为sin/cos） |
+| 28 | month | 时间 | - | ✗ | 月份（转换为sin/cos） |
 
 **说明:**
 - ✓ 静态特征: 每个站点固定,不随时间变化
@@ -966,6 +969,11 @@ config.feature_indices = None  # 26特征
 - **时间编码**: Vaswani et al. "Attention is All You Need" (Positional Encoding)
 
 ### D. 更新日志
+
+#### v3.1 (2026-03-28)
+- ✨ 更新为29特征格式 [2922, 28, 29]
+- ✨ 新增 total_precipitation_sum（ERA5累计降水，索引24）
+- 📝 VegHeight 索引调整为 25-26，doy/month 调整为 27-28
 
 #### v3.0 (2025-12-16)
 - ✨ 更新为28特征格式 [2922, 28, 28]

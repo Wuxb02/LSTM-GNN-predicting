@@ -83,7 +83,7 @@ def get_feature_indices_for_graph(config):
         config: Config对象
 
     Returns:
-        list: 特征索引列表，例如 [0,1,2,...,25] 或 [0,1,2,3,4,10,11,21,22,23]
+        list: 特征索引列表，例如 [0,1,2,...,26] 或 [0,1,2,3,4,10,11,21,22,23]
 
     逻辑:
         1. 如果启用特征分离 (use_feature_separation=True):
@@ -91,12 +91,12 @@ def get_feature_indices_for_graph(config):
         2. 如果指定了feature_indices:
            使用指定的特征索引
         3. 否则:
-           使用默认的0-25（移除doy和month）
+           使用默认的0-26（移除doy和month）
 
     注意:
-        - 返回的索引用于从原始数据 [time, stations, 28] 中提取特征
+        - 返回的索引用于从原始数据 [time, stations, 29] 中提取特征
         - 不包括时间编码（doy_sin/cos, month_sin/cos），因为时间编码在数据加载时动态生成
-        - 索引26-27（doy, month）应被排除，因为它们会被转换为sin/cos
+        - 索引27-28（doy, month）应被排除，因为它们会被转换为sin/cos
     """
     if config.use_feature_separation:
         # 分离模式：合并静态和动态特征索引
@@ -118,9 +118,9 @@ def get_feature_indices_for_graph(config):
         return indices
 
     else:
-        # 默认：使用0-25（移除doy和month）
-        indices = list(range(26))
-        print(f"  [特征选择] 使用默认特征: 0-25 (26个)")
+        # 默认：使用0-26（移除doy和month）
+        indices = list(range(27))
+        print(f"  [特征选择] 使用默认特征: 0-26 (27个)")
         return indices
 
 
@@ -156,7 +156,7 @@ class Config:
         self.pred_len = 5         # 预测长度（天）
 
         # ==================== 特征配置 ====================
-        # 原始特征索引（0-27共28个）:
+        # 原始特征索引（0-28共29个）:
         # 0-1: x, y (经纬度)
         # 2: height (海拔高度)
         # 3-5: tmin, tmax, tave (温度)
@@ -168,11 +168,12 @@ class Config:
         # 19: NDVI (植被指数)
         # 20-21: surface_pressure, surface_solar_radiation (ERA5)
         # 22-23: u_component_of_wind_10m, v_component_of_wind_10m (风速分量)
-        # 24-25: VegHeight_mean, VegHeight_std (植被高度特征)
-        # 26-27: doy, month (时间，将被转换为sin/cos)
+        # 24: total_precipitation_sum (ERA5累计降水)
+        # 25-26: VegHeight_mean, VegHeight_std (植被高度特征)
+        # 27-28: doy, month (时间，将被转换为sin/cos)
 
-        self.base_feature_dim = 28        # 原始特征维度（0-27）
-        self.target_feature_idx = 4       # 预测目标：索引5 = tave（平均气温）
+        self.base_feature_dim = 29        # 原始特征维度（0-28）
+        self.target_feature_idx = 4       # 预测目标：索引4 = tmax
 
         # 特征选择（None表示使用所有基础特征，即0-25，移除doy和month）
         # 可设置为列表选择部分特征
@@ -190,15 +191,16 @@ class Config:
         # 静态特征索引（逐年数据，不随时间变化）
         # 0-2: x, y, height (地理位置)
         # 10-18: BH, BHstd, SCD, PLA, λp, λb, POI, POW, POV (城市形态)
-        # 24-25: VegHeight_mean, VegHeight_std (植被高度)
-        self.static_feature_indices = [0, 1, 2, 10, 11, 12, 16, 17, 18, 24]
-        # self.static_feature_indices = [0, 1, 2, 10, 11, 12, 13, 14, 15, 16, 17, 18, 24, 25]
+        # 25-26: VegHeight_mean, VegHeight_std (植被高度)
+        self.static_feature_indices = [0, 1, 2, 10, 11, 12, 16, 17, 18, 25]
+        # self.static_feature_indices = [0, 1, 2, 10, 11, 12, 13, 14, 15, 16, 17, 18, 25, 26]
 
         # 动态特征索引（逐日数据，随时间变化）
         # 3-9: tmin, tmax, tave, pre, prs, rh, win (气象要素)
-        # 19-23: NDVI, surface_pressure, surface_solar_radiation, u_wind, v_wind
-        # 注意：doy(26)和month(27)将单独转换为sin/cos编码
-        self.dynamic_feature_indices = [ 3, 4, 5, 6, 7, 8, 9, 21, 22, 23]
+        # 19-24: NDVI, surface_pressure, surface_solar_radiation, u_wind, v_wind,
+        #         total_precipitation_sum
+        # 注意：doy(27)和month(28)将单独转换为sin/cos编码
+        self.dynamic_feature_indices = [4, 8, 9, 21, 22, 23, 24]
 
         # 配置验证
         if self.use_feature_separation:
@@ -211,10 +213,10 @@ class Config:
                     f"动态: {self.dynamic_feature_indices}"
                 )
 
-            # 检查是否包含时间特征（26-27应被排除）
-            if 26 in combined or 27 in combined:
+            # 检查是否包含时间特征（27-28应被排除）
+            if 27 in combined or 28 in combined:
                 raise ValueError(
-                    f"特征索引不应包含时间特征26(doy)和27(month)！\n"
+                    f"特征索引不应包含时间特征27(doy)和28(month)！\n"
                     f"当前静态: {self.static_feature_indices}\n"
                     f"当前动态: {self.dynamic_feature_indices}\n"
                     f"时间特征将自动转换为sin/cos编码"
@@ -333,8 +335,8 @@ class Config:
                 # 使用指定特征
                 base_dim = len(self.feature_indices)
             else:
-                # 使用所有特征（移除doy和month后剩余26个：0-25）
-                base_dim = 26
+                # 使用所有特征（移除doy和month后剩余27个：0-26）
+                base_dim = 27
 
             if self.add_temporal_encoding:
                 return base_dim + self.temporal_features
@@ -479,7 +481,7 @@ def print_config(config, arch_config):
     if config.feature_indices:
         print(f"  选择特征: {config.feature_indices}")
     else:
-        print(f"  选择特征: 所有基础特征（0-25）")
+        print(f"  选择特征: 所有基础特征（0-26）")
     print(f"  时间编码: {'启用' if config.add_temporal_encoding else '禁用'}")
     if config.add_temporal_encoding:
         print(f"    - 年周期: doy_sin, doy_cos")

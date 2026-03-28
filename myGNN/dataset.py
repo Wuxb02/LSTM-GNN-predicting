@@ -150,8 +150,8 @@ class WeatherGraphDataset(Dataset):
             current_idx = time_idx - self.config.hist_len + t
 
             # 获取原始时间特征（所有气象站的时间特征相同，取第一个）
-            doy = self.MetData[current_idx, 0, 26]      # 年内日序数 (1-366)
-            month = self.MetData[current_idx, 0, 27]    # 月份 (1-12)
+            doy = self.MetData[current_idx, 0, 27]      # 年内日序数 (1-366)
+            month = self.MetData[current_idx, 0, 28]    # 月份 (1-12)
 
             # 年周期编码
             days_in_year = 366 if doy > 365 else 365
@@ -213,9 +213,9 @@ class WeatherGraphDataset(Dataset):
             # 使用指定特征
             features = hist_window[:, :, self.config.feature_indices]
         else:
-            # 使用所有特征，但移除doy和month（索引26-27）
-            # 保留索引0-25
-            features = hist_window[:, :, :26]
+            # 使用所有特征，但移除doy和month（索引27-28）
+            # 保留索引0-26
+            features = hist_window[:, :, :27]
 
         # features shape: [hist_len, num_stations, base_features]
 
@@ -434,8 +434,8 @@ def _create_dataloaders_original(config, graph, MetData):
     # 2. 计算标准化统计量（仅使用训练集）
     train_data = MetData[config.train_start:config.train_end]
 
-    # 2.1 计算所有输入特征的统计量（0-25索引，移除时间特征26-27）
-    feature_data = train_data[:, :, :26]
+    # 2.1 计算所有输入特征的统计量（0-26索引，移除时间特征27-28）
+    feature_data = train_data[:, :, :27]
 
     feature_mean = feature_data.mean(axis=(0, 1))
     feature_std = feature_data.std(axis=(0, 1))
@@ -469,9 +469,9 @@ def _create_dataloaders_original(config, graph, MetData):
     print(f"  目标特征90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)")
 
     # 3. 标准化
-    MetData[:, :, :26] = (MetData[:, :, :26] - feature_mean) / (feature_std + 1e-8)
+    MetData[:, :, :27] = (MetData[:, :, :27] - feature_mean) / (feature_std + 1e-8)
 
-    print(f"✓ 已标准化所有26个输入特征")
+    print(f"✓ 已标准化所有27个输入特征")
 
     stats = {
         'ta_mean': ta_mean,

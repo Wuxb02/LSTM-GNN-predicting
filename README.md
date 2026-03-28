@@ -57,7 +57,7 @@ D:\anaconda\Scripts\activate.bat && conda activate gnn_predict && C:\Users\wxb55
 gnn_predict/
 ├── data/
 │   ├── result/                          # CSV原始数据（2010-2017年，8个文件）
-│   ├── real_weather_data_2010_2017.npy  # 主数据 [2922, 28, 28]
+│   ├── real_weather_data_2010_2017.npy  # 主数据 [2922, 28, 29]
 │   ├── station_info.npy                 # 气象站信息 [28, 4]
 │   ├── convert_real_data.py             # CSV → NPY 转换脚本
 │   └── diagnose_nan.py                  # 数据质量诊断
@@ -126,7 +126,7 @@ gnn_predict/
 
 ### 主数据 `real_weather_data_2010_2017.npy`
 
-形状：`[2922, 28, 28]`（天数 × 站点数 × 特征数）
+形状：`[2922, 28, 29]`（天数 × 站点数 × 特征数）
 
 | 索引 | 特征 | 类型 |
 |------|------|------|
@@ -136,8 +136,9 @@ gnn_predict/
 | 10–18 | BH, BHstd, SCD, PLA, λp, λb, POI, POW, POV | 城市环境 |
 | 19 | NDVI | 植被指数 |
 | 20–23 | surface_pressure, solar_radiation, u_wind, v_wind | ERA5再分析 |
-| 24–25 | VegHeight_mean, VegHeight_std | 植被高度 |
-| 26–27 | doy, month | 时间（自动转为4维sin/cos编码） |
+| 24 | total_precipitation_sum | ERA5累计降水 |
+| 25–26 | VegHeight_mean, VegHeight_std | 植被高度 |
+| 27–28 | doy, month | 时间（自动转为4维sin/cos编码） |
 
 ### 数据集划分
 
