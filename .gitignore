@@ -52,7 +52,7 @@ Thumbs.db
 nni/
 
 origin_gnn/
-data/*
+data/result/
 analysis_results/
 figdraw/result/
 figdraw/*.jpg
