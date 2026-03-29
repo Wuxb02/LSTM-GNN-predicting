@@ -173,7 +173,7 @@ class Config:
         # 27-28: doy, month (时间，将被转换为sin/cos)
 
         self.base_feature_dim = 29        # 原始特征维度（0-28）
-        self.target_feature_idx = 4       # 预测目标：索引4 = tmax
+        self.target_feature_idx = 5       # 预测目标：索引5 = tave
 
         # 特征选择（None表示使用所有基础特征，即0-25，移除doy和month）
         # 可设置为列表选择部分特征
@@ -200,7 +200,7 @@ class Config:
         # 19-24: NDVI, surface_pressure, surface_solar_radiation, u_wind, v_wind,
         #         total_precipitation_sum
         # 注意：doy(27)和month(28)将单独转换为sin/cos编码
-        self.dynamic_feature_indices = [4, 8, 9, 21, 22, 23, 24]
+        self.dynamic_feature_indices = [5, 8, 21, 22, 23, 24]
 
         # 配置验证
         if self.use_feature_separation:
