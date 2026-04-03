@@ -20,7 +20,7 @@
 
 **技术改进:**
 - 使用Haversine公式精确计算球面距离
-- 基于训练集(2010-2015)计算温度相关性,避免数据泄露
+- 基于训练集(2010-2017)计算温度相关性,避免数据泄露
 - 线性回归+统计检验(Pearson r, p-value, R²)
 - 边级注意力→节点级矩阵转换(支持mean/max/sum聚合)
 
@@ -271,10 +271,10 @@ plot_distance_vs_attention(
 
 # === 步骤3: 分析注意力-温度相关性关系 ===
 # 3.1 计算训练集温度相关性矩阵(避免数据泄露)
-weather_data = np.load('data/real_weather_data_2010_2017.npy')
+weather_data = np.load('data/real_weather_data_2010_2019.npy')
 corr_matrix = compute_temperature_correlation(
     weather_data,
-    train_indices=(0, 2191),  # 仅使用训练集(2010-2015)
+    train_indices=(0, 2922),  # 仅使用训练集(2010-2017)
     target_feature_idx=4      # tmax最高气温
 )
 print(f"\n温度相关性矩阵形状: {corr_matrix.shape}")  # (28, 28)
@@ -472,10 +472,10 @@ plot_distance_vs_attention(
 )
 
 # 5. 自定义温度相关性-注意力分析
-weather_data = np.load('data/real_weather_data_2010_2017.npy')
+weather_data = np.load('data/real_weather_data_2010_2019.npy')
 corr_matrix = compute_temperature_correlation(
     weather_data,
-    train_indices=(0, 2191),
+    train_indices=(0, 2922),
     target_feature_idx=4  # tmax
 )
 edge_corrs = extract_edge_correlations(edge_index, corr_matrix)
@@ -721,9 +721,9 @@ def compute_temperature_correlation(weather_data, train_indices, target_feature_
 ```
 
 **设计考虑:**
-- **避免数据泄露**: 仅使用训练集(2010-2015, 索引0-2190)
+- **避免数据泄露**: 仅使用训练集(2010-2017, 索引0-2921)
 - **目标特征**: 通常使用tmax(索引4),也可选择tmin/tave
-- **时间范围**: 6年数据(2191天),统计显著性高
+- **时间范围**: 8年数据(2922天),统计显著性高
 
 ### 边索引一致性
 
@@ -804,8 +804,8 @@ r = -0.45, p = 1.2e-15  → 强负相关,高度显著
 
 **注意:**
 - 相关性基于训练集计算,避免数据泄露
-- 仅使用2010-2015年数据(索引0-2190)
-- 不包含验证集(2016)和测试集(2017)
+- 仅使用2010-2017年数据(索引0-2921)
+- 不包含验证集(2018)和测试集(2019)
 
 ### Q6: 如何处理大图(边数过多)?
 

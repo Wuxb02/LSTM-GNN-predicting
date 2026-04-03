@@ -19,17 +19,19 @@ from torch.utils.data import Dataset, DataLoader
 from torch_geometric.data import Data, Batch
 
 
-# 年份边界定义（2010-2017年数据）
+# 年份边界定义（2010-2019年数据）
 # 数据索引从0开始，每年的[start, end)
 YEAR_BOUNDARIES = {
-    2010: (0, 365),       # 365天
-    2011: (365, 730),     # 365天
-    2012: (730, 1096),    # 366天（闰年）
-    2013: (1096, 1461),   # 365天
-    2014: (1461, 1826),   # 365天
-    2015: (1826, 2191),   # 365天
-    2016: (2191, 2557),   # 366天（闰年）
-    2017: (2557, 2922),   # 365天
+    2010: (0, 365),  # 365天
+    2011: (365, 730),  # 365天
+    2012: (730, 1096),  # 366天（闰年）
+    2013: (1096, 1461),  # 365天
+    2014: (1461, 1826),  # 365天
+    2015: (1826, 2191),  # 365天
+    2016: (2191, 2557),  # 366天（闰年）
+    2017: (2557, 2922),  # 365天
+    2018: (2922, 3287),  # 365天
+    2019: (3287, 3652),  # 365天
 }
 
 
@@ -60,7 +62,7 @@ def _get_year_from_idx(time_idx):
     # 边界情况处理
     if time_idx < 0:
         return 2010
-    return 2017
+    return 2019
 
 
 def _get_years_in_range(start_idx, end_idx):
@@ -92,8 +94,16 @@ class WeatherGraphDataset(Dataset):
     - 静态/动态特征分离编码（use_feature_separation）
     """
 
-    def __init__(self, MetData, graph, start_idx, end_idx, config,
-                 static_encoded=None, static_encoded_by_year=None):
+    def __init__(
+        self,
+        MetData,
+        graph,
+        start_idx,
+        end_idx,
+        config,
+        static_encoded=None,
+        static_encoded_by_year=None,
+    ):
         """
         初始化数据集
 
@@ -114,9 +124,7 @@ class WeatherGraphDataset(Dataset):
         self.config = config
 
         # 特征分离相关
-        self.use_feature_separation = getattr(
-            config, 'use_feature_separation', False
-        )
+        self.use_feature_separation = getattr(config, "use_feature_separation", False)
         self.static_encoded = static_encoded
         self.static_encoded_by_year = static_encoded_by_year
 
@@ -166,10 +174,14 @@ class WeatherGraphDataset(Dataset):
             month_cos = np.cos(month_phase)
 
             # 组合为4维时间特征
-            temporal_feat = np.array([
-                doy_sin, doy_cos,      # 年周期
-                month_sin, month_cos   # 月周期
-            ])
+            temporal_feat = np.array(
+                [
+                    doy_sin,
+                    doy_cos,  # 年周期
+                    month_sin,
+                    month_cos,  # 月周期
+                ]
+            )
 
             temporal_list.append(temporal_feat)
 
@@ -206,7 +218,7 @@ class WeatherGraphDataset(Dataset):
             time_idx: 时间索引张量
         """
         # 1. 提取历史窗口 [hist_len, num_stations, features]
-        hist_window = self.MetData[time_idx - self.config.hist_len:time_idx]
+        hist_window = self.MetData[time_idx - self.config.hist_len : time_idx]
 
         # 2. 特征选择
         if self.config.feature_indices is not None:
@@ -226,8 +238,7 @@ class WeatherGraphDataset(Dataset):
             # 为每个气象站复制时间特征
             num_stations = features.shape[1]
             temporal_expanded = np.tile(
-                temporal_features[:, np.newaxis, :],
-                (1, num_stations, 1)
+                temporal_features[:, np.newaxis, :], (1, num_stations, 1)
             )
 
             # 拼接原始特征和时间特征
@@ -238,9 +249,9 @@ class WeatherGraphDataset(Dataset):
 
         # 5. 提取标签
         y = self.MetData[
-            time_idx:time_idx + self.config.pred_len,
+            time_idx : time_idx + self.config.pred_len,
             :,
-            self.config.target_feature_idx
+            self.config.target_feature_idx,
         ]
         y = y.T.copy()
 
@@ -248,19 +259,15 @@ class WeatherGraphDataset(Dataset):
         x_tensor = torch.FloatTensor(x)
         y_tensor = torch.FloatTensor(y)
 
-        if self.config.use_edge_attr and hasattr(self.graph, 'edge_attr'):
+        if self.config.use_edge_attr and hasattr(self.graph, "edge_attr"):
             data = Data(
                 x=x_tensor,
                 y=y_tensor,
                 edge_index=self.graph.edge_index,
-                edge_attr=self.graph.edge_attr
+                edge_attr=self.graph.edge_attr,
             )
         else:
-            data = Data(
-                x=x_tensor,
-                y=y_tensor,
-                edge_index=self.graph.edge_index
-            )
+            data = Data(x=x_tensor, y=y_tensor, edge_index=self.graph.edge_index)
 
         return data, torch.LongTensor([time_idx])
 
@@ -291,9 +298,7 @@ class WeatherGraphDataset(Dataset):
                 return self.static_encoded_by_year[year]
             else:
                 # 跨年：取多年平均
-                embeddings = [
-                    self.static_encoded_by_year[y] for y in years_in_window
-                ]
+                embeddings = [self.static_encoded_by_year[y] for y in years_in_window]
                 return np.mean(embeddings, axis=0)
 
         # 向后兼容：使用单一静态编码
@@ -302,9 +307,7 @@ class WeatherGraphDataset(Dataset):
 
         # 都没有预编码，使用原始静态特征
         else:
-            hist_window = self.MetData[
-                time_idx - self.config.hist_len:time_idx
-            ]
+            hist_window = self.MetData[time_idx - self.config.hist_len : time_idx]
             static_indices = self.config.static_feature_indices
             return hist_window[0, :, static_indices]
 
@@ -328,7 +331,7 @@ class WeatherGraphDataset(Dataset):
             time_idx: 时间索引张量
         """
         # 1. 提取动态特征历史窗口
-        hist_window = self.MetData[time_idx - self.config.hist_len:time_idx]
+        hist_window = self.MetData[time_idx - self.config.hist_len : time_idx]
         dynamic_indices = self.config.dynamic_feature_indices
         dynamic_features = hist_window[:, :, dynamic_indices]
         # shape: [hist_len, num_nodes, dynamic_dim]
@@ -340,8 +343,7 @@ class WeatherGraphDataset(Dataset):
 
             num_nodes = dynamic_features.shape[1]
             temporal_expanded = np.tile(
-                temporal_features[:, np.newaxis, :],
-                (1, num_nodes, 1)
+                temporal_features[:, np.newaxis, :], (1, num_nodes, 1)
             )
             # shape: [hist_len, num_nodes, 4]
 
@@ -358,7 +360,7 @@ class WeatherGraphDataset(Dataset):
         hist_len = dynamic_features.shape[0]
         static_broadcast = np.tile(
             static_embedding[np.newaxis, :, :],  # [1, num_nodes, static_dim]
-            (hist_len, 1, 1)                      # [hist_len, num_nodes, static_dim]
+            (hist_len, 1, 1),  # [hist_len, num_nodes, static_dim]
         )
 
         # 5. 拼接静态和动态特征
@@ -372,9 +374,9 @@ class WeatherGraphDataset(Dataset):
 
         # 7. 提取标签
         y = self.MetData[
-            time_idx:time_idx + self.config.pred_len,
+            time_idx : time_idx + self.config.pred_len,
             :,
-            self.config.target_feature_idx
+            self.config.target_feature_idx,
         ]
         y = y.T.copy()
 
@@ -382,19 +384,15 @@ class WeatherGraphDataset(Dataset):
         x_tensor = torch.FloatTensor(x)
         y_tensor = torch.FloatTensor(y)
 
-        if self.config.use_edge_attr and hasattr(self.graph, 'edge_attr'):
+        if self.config.use_edge_attr and hasattr(self.graph, "edge_attr"):
             data = Data(
                 x=x_tensor,
                 y=y_tensor,
                 edge_index=self.graph.edge_index,
-                edge_attr=self.graph.edge_attr
+                edge_attr=self.graph.edge_attr,
             )
         else:
-            data = Data(
-                x=x_tensor,
-                y=y_tensor,
-                edge_index=self.graph.edge_index
-            )
+            data = Data(x=x_tensor, y=y_tensor, edge_index=self.graph.edge_index)
 
         return data, torch.LongTensor([time_idx])
 
@@ -419,7 +417,7 @@ def create_dataloaders(config, graph):
     print(f"  原始形状: {MetData.shape}")
 
     # 2. 判断是否使用特征分离模式
-    use_separation = getattr(config, 'use_feature_separation', False)
+    use_separation = getattr(config, "use_feature_separation", False)
 
     if use_separation:
         return _create_dataloaders_separated(config, graph, MetData)
@@ -432,7 +430,7 @@ def _create_dataloaders_original(config, graph, MetData):
     原模式创建数据加载器（保持向后兼容）
     """
     # 2. 计算标准化统计量（仅使用训练集）
-    train_data = MetData[config.train_start:config.train_end]
+    train_data = MetData[config.train_start : config.train_end]
 
     # 2.1 计算所有输入特征的统计量（0-26索引，移除时间特征27-28）
     feature_data = train_data[:, :, :27]
@@ -458,14 +456,18 @@ def _create_dataloaders_original(config, graph, MetData):
     ta_std = float(feature_std[config.target_feature_idx])
 
     # 🆕 计算90分位数（用于动态高温阈值）
-    target_feature_data = train_data[:, :, config.target_feature_idx]  # shape: [train_len, 28]
+    target_feature_data = train_data[
+        :, :, config.target_feature_idx
+    ]  # shape: [train_len, 28]
     ta_p90 = float(np.percentile(target_feature_data, 90))  # 90分位数
 
     print(f"\n标准化参数计算完成:")
     print(f"  特征均值范围: [{feature_mean.min():.4f}, {feature_mean.max():.4f}]")
     print(f"  特征标准差范围: [{feature_std.min():.4f}, {feature_std.max():.4f}]")
-    print(f"  目标特征(索引{config.target_feature_idx}) - "
-          f"mean: {ta_mean:.4f}, std: {ta_std:.4f}")
+    print(
+        f"  目标特征(索引{config.target_feature_idx}) - "
+        f"mean: {ta_mean:.4f}, std: {ta_std:.4f}"
+    )
     print(f"  目标特征90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)")
 
     # 3. 标准化
@@ -474,11 +476,11 @@ def _create_dataloaders_original(config, graph, MetData):
     print(f"✓ 已标准化所有27个输入特征")
 
     stats = {
-        'ta_mean': ta_mean,
-        'ta_std': ta_std,
-        'ta_p90': ta_p90,          # 🆕 添加90分位数
-        'feature_mean': feature_mean,
-        'feature_std': feature_std
+        "ta_mean": ta_mean,
+        "ta_std": ta_std,
+        "ta_p90": ta_p90,  # 🆕 添加90分位数
+        "feature_mean": feature_mean,
+        "feature_std": feature_std,
     }
 
     # 4. 创建数据集
@@ -518,16 +520,20 @@ def _create_dataloaders_separated(config, graph, MetData):
     from myGNN.feature_encoder import StaticFeatureEncoder
 
     print(f"\n✓ 启用特征分离模式（按年份提取静态特征）")
-    print(f"  静态特征索引: {config.static_feature_indices} "
-          f"({len(config.static_feature_indices)}个)")
-    print(f"  动态特征索引: {config.dynamic_feature_indices} "
-          f"({len(config.dynamic_feature_indices)}个)")
+    print(
+        f"  静态特征索引: {config.static_feature_indices} "
+        f"({len(config.static_feature_indices)}个)"
+    )
+    print(
+        f"  动态特征索引: {config.dynamic_feature_indices} "
+        f"({len(config.dynamic_feature_indices)}个)"
+    )
 
     static_indices = config.static_feature_indices
     dynamic_indices = config.dynamic_feature_indices
 
     # 2. 分别计算静态和动态特征的标准化参数（仅使用训练集）
-    train_data = MetData[config.train_start:config.train_end]
+    train_data = MetData[config.train_start : config.train_end]
 
     # 2.1 静态特征统计量
     static_data = train_data[:, :, static_indices]
@@ -565,11 +571,11 @@ def _create_dataloaders_separated(config, graph, MetData):
     print(f"\n目标特征(索引{target_idx})90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)")
 
     # 3. 标准化整个数据集
-    MetData[:, :, static_indices] = (
-        (MetData[:, :, static_indices] - static_mean) / (static_std + 1e-8)
+    MetData[:, :, static_indices] = (MetData[:, :, static_indices] - static_mean) / (
+        static_std + 1e-8
     )
-    MetData[:, :, dynamic_indices] = (
-        (MetData[:, :, dynamic_indices] - dynamic_mean) / (dynamic_std + 1e-8)
+    MetData[:, :, dynamic_indices] = (MetData[:, :, dynamic_indices] - dynamic_mean) / (
+        dynamic_std + 1e-8
     )
 
     print(f"✓ 已分别标准化静态和动态特征")
@@ -580,8 +586,7 @@ def _create_dataloaders_separated(config, graph, MetData):
 
     # 创建静态编码器（恒等映射）
     static_encoder = StaticFeatureEncoder(
-        input_dim=len(static_indices),
-        output_dim=config.static_encoded_dim
+        input_dim=len(static_indices), output_dim=config.static_encoded_dim
     )
 
     # 按年份提取和编码静态特征
@@ -593,17 +598,15 @@ def _create_dataloaders_separated(config, graph, MetData):
 
         # 编码
         with torch.no_grad():
-            year_encoded = static_encoder(
-                torch.FloatTensor(year_static)
-            ).numpy()
+            year_encoded = static_encoder(torch.FloatTensor(year_static)).numpy()
         # shape: [num_nodes, encoded_dim]
 
         static_encoded_by_year[year] = year_encoded
-        print(f"  {year}年: 索引[{start}, {end}), "
-              f"编码形状: {year_encoded.shape}")
+        print(f"  {year}年: 索引[{start}, {end}), 编码形状: {year_encoded.shape}")
 
-    print(f"\n静态编码器参数量: "
-          f"{sum(p.numel() for p in static_encoder.parameters()):,}")
+    print(
+        f"\n静态编码器参数量: {sum(p.numel() for p in static_encoder.parameters()):,}"
+    )
 
     # 5. 计算目标特征统计量（用于损失反标准化）
     # 注意：ta_p90 已在标准化之前计算（见上方第561-565行）
@@ -634,33 +637,43 @@ def _create_dataloaders_separated(config, graph, MetData):
     print(f"  预计跨年样本数: ~{cross_year_count} (每年初约{config.hist_len}个)")
 
     stats = {
-        'ta_mean': ta_mean,
-        'ta_std': ta_std,
-        'ta_p90': ta_p90,          # 🆕 添加90分位数
-        'static_mean': static_mean,
-        'static_std': static_std,
-        'dynamic_mean': dynamic_mean,
-        'dynamic_std': dynamic_std,
-        'static_encoder': static_encoder,
-        'static_encoded_by_year': static_encoded_by_year,
+        "ta_mean": ta_mean,
+        "ta_std": ta_std,
+        "ta_p90": ta_p90,  # 🆕 添加90分位数
+        "static_mean": static_mean,
+        "static_std": static_std,
+        "dynamic_mean": dynamic_mean,
+        "dynamic_std": dynamic_std,
+        "static_encoder": static_encoder,
+        "static_encoded_by_year": static_encoded_by_year,
         # 向后兼容：保留一个全局静态编码（取所有年份平均）
-        'static_encoded': np.mean(
-            list(static_encoded_by_year.values()), axis=0
-        )
+        "static_encoded": np.mean(list(static_encoded_by_year.values()), axis=0),
     }
 
     # 6. 创建数据集（使用按年份的静态编码）
     train_dataset = WeatherGraphDataset(
-        MetData, graph, config.train_start, config.train_end, config,
-        static_encoded_by_year=static_encoded_by_year
+        MetData,
+        graph,
+        config.train_start,
+        config.train_end,
+        config,
+        static_encoded_by_year=static_encoded_by_year,
     )
     val_dataset = WeatherGraphDataset(
-        MetData, graph, config.val_start, config.val_end, config,
-        static_encoded_by_year=static_encoded_by_year
+        MetData,
+        graph,
+        config.val_start,
+        config.val_end,
+        config,
+        static_encoded_by_year=static_encoded_by_year,
     )
     test_dataset = WeatherGraphDataset(
-        MetData, graph, config.test_start, config.test_end, config,
-        static_encoded_by_year=static_encoded_by_year
+        MetData,
+        graph,
+        config.test_start,
+        config.test_end,
+        config,
+        static_encoded_by_year=static_encoded_by_year,
     )
 
     print(f"\n数据集划分:")
@@ -672,8 +685,10 @@ def _create_dataloaders_separated(config, graph, MetData):
     print(f"\n特征维度信息:")
     print(f"  静态编码维度: {config.static_encoded_dim}")
     print(f"  动态特征维度: {len(dynamic_indices)}")
-    print(f"  时间编码维度: "
-          f"{config.temporal_features if config.add_temporal_encoding else 0}")
+    print(
+        f"  时间编码维度: "
+        f"{config.temporal_features if config.add_temporal_encoding else 0}"
+    )
     print(f"  总输入维度: {config.in_dim}")
 
     # 7. 创建DataLoader
@@ -688,6 +703,7 @@ def _create_loaders(train_dataset, val_dataset, test_dataset, config):
     """
     创建DataLoader（共用函数）
     """
+
     def collate_fn(batch):
         """将batch中的样本组合为PyG Batch对象"""
         data_list = [item[0] for item in batch]
@@ -701,7 +717,7 @@ def _create_loaders(train_dataset, val_dataset, test_dataset, config):
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=0,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
     )
 
     val_loader = DataLoader(
@@ -709,7 +725,7 @@ def _create_loaders(train_dataset, val_dataset, test_dataset, config):
         batch_size=config.batch_size,
         shuffle=False,
         num_workers=0,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
     )
 
     test_loader = DataLoader(
@@ -717,7 +733,7 @@ def _create_loaders(train_dataset, val_dataset, test_dataset, config):
         batch_size=config.batch_size,
         shuffle=False,
         num_workers=0,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
     )
 
     return train_loader, val_loader, test_loader
@@ -726,7 +742,8 @@ def _create_loaders(train_dataset, val_dataset, test_dataset, config):
 if __name__ == "__main__":
     # 测试数据加载
     import sys
-    sys.path.append('..')
+
+    sys.path.append("..")
 
     from config import create_config
     from graph import load_graph_from_station_info
@@ -746,13 +763,11 @@ if __name__ == "__main__":
     graph = load_graph_from_station_info(
         config.station_info_fp,
         top_neighbors=config.top_neighbors,
-        use_edge_attr=config.use_edge_attr
+        use_edge_attr=config.use_edge_attr,
     )
 
     # 创建数据加载器
-    train_loader, val_loader, test_loader, stats = create_dataloaders(
-        config, graph
-    )
+    train_loader, val_loader, test_loader, stats = create_dataloaders(config, graph)
 
     # 测试一个batch
     for batch_data, time_indices in train_loader:
@@ -764,8 +779,9 @@ if __name__ == "__main__":
         # 验证维度
         expected_dim = config.in_dim
         actual_dim = batch_data.x.shape[-1]
-        assert actual_dim == expected_dim, \
+        assert actual_dim == expected_dim, (
             f"维度不匹配: 实际{actual_dim} vs 期望{expected_dim}"
+        )
         print(f"  ✓ 维度验证通过: {actual_dim}")
         break
 
@@ -789,8 +805,9 @@ if __name__ == "__main__":
 
         expected_dim2 = config2.in_dim
         actual_dim2 = batch_data2.x.shape[-1]
-        assert actual_dim2 == expected_dim2, \
+        assert actual_dim2 == expected_dim2, (
             f"维度不匹配: 实际{actual_dim2} vs 期望{expected_dim2}"
+        )
         print(f"  ✓ 维度验证通过: {actual_dim2}")
         break
 
@@ -809,4 +826,3 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("所有测试通过!")
     print("=" * 70)
-
