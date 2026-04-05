@@ -15,18 +15,20 @@
     # 训练一个epoch
     loss = train_epoch(model, dataloader, optimizer, criterion, config, device)
 """
+
 import numpy as np
 import torch
 import torch.nn as nn
 from myGNN.losses import WeightedTrendMSELoss
 
 
-def get_loss_function(config):
+def get_loss_function(config, threshold_map=None):
     """
     根据配置创建损失函数
 
     参数:
         config: 配置对象，需包含loss_config属性
+        threshold_map: 站点-日内动态阈值表 [365, num_stations]（可选）
 
     返回:
         nn.Module: 损失函数实例
@@ -42,44 +44,75 @@ def get_loss_function(config):
         >>> criterion = get_loss_function(config)
     """
     # 如果没有loss_config，使用默认MSE
-    if not hasattr(config, 'loss_config'):
+    if not hasattr(config, "loss_config"):
         print("警告: config中未找到loss_config，使用默认MSE损失")
         return nn.MSELoss()
 
     loss_cfg = config.loss_config
 
     # 标准MSE损失
-    if loss_cfg.loss_type == 'MSE':
+    if loss_cfg.loss_type == "MSE":
         print("使用标准MSE损失函数")
         return nn.MSELoss()
 
     # 🔥 加权趋势损失（论文方法 - 推荐）
-    elif loss_cfg.loss_type == 'WeightedTrend':
+    elif loss_cfg.loss_type == "WeightedTrend":
         print(f"使用自适应加权趋势MSE损失函数 (温度加权 + 趋势约束)")
-        print(f"  - 固定阈值: {loss_cfg.alert_temp}°C")
-        print(f"  - 漏报权重c_under: {loss_cfg.c_under} (低估高温的惩罚)")
-        print(f"  - 误报权重c_over: {loss_cfg.c_over} (高估的惩罚)")
-        print(f"  - 正确预报高温权重: {loss_cfg.c_default_high}")
-        print(f"  - 趋势权重α: {loss_cfg.trend_weight}")
 
-        return WeightedTrendMSELoss(
-            alert_temp=loss_cfg.alert_temp,
-            c_under=loss_cfg.c_under,
-            c_over=loss_cfg.c_over,
-            delta=loss_cfg.delta,
-            trend_weight=loss_cfg.trend_weight,
-            ta_mean=config.ta_mean,
-            ta_std=config.ta_std
-        )
+        if (
+            getattr(loss_cfg, "use_station_day_threshold", False)
+            and threshold_map is not None
+        ):
+            print(f"  - 阈值模式: 站点-日内动态阈值 (365 x 28)")
+            print(f"  - 分位数: {loss_cfg.threshold_percentile}")
+            print(f"  - 窗口半径: ±{loss_cfg.threshold_window_radius}天")
+            print(f"  - 漏报权重c_under: {loss_cfg.c_under}")
+            print(f"  - 误报权重c_over: {loss_cfg.c_over}")
+            print(f"  - 趋势权重α: {loss_cfg.trend_weight}")
+
+            criterion = WeightedTrendMSELoss(
+                alert_temp=loss_cfg.alert_temp,
+                c_under=loss_cfg.c_under,
+                c_over=loss_cfg.c_over,
+                delta=loss_cfg.delta,
+                trend_weight=loss_cfg.trend_weight,
+                ta_mean=config.ta_mean,
+                ta_std=config.ta_std,
+                threshold_map=threshold_map,
+                use_station_day_threshold=True,
+            )
+        else:
+            print(
+                f"  - 阈值模式: {'全局动态' if loss_cfg.use_dynamic_threshold else '固定'} "
+                f"({loss_cfg.alert_temp}°C)"
+            )
+            print(f"  - 漏报权重c_under: {loss_cfg.c_under}")
+            print(f"  - 误报权重c_over: {loss_cfg.c_over}")
+            print(f"  - 趋势权重α: {loss_cfg.trend_weight}")
+
+            criterion = WeightedTrendMSELoss(
+                alert_temp=loss_cfg.alert_temp,
+                c_under=loss_cfg.c_under,
+                c_over=loss_cfg.c_over,
+                delta=loss_cfg.delta,
+                trend_weight=loss_cfg.trend_weight,
+                ta_mean=config.ta_mean,
+                ta_std=config.ta_std,
+            )
+
+        # 将损失函数移到目标设备，避免 threshold_map 的 CPU↔GPU 传输
+        if hasattr(config, "device"):
+            criterion = criterion.to(config.device)
+
+        return criterion
 
     else:
         raise ValueError(
-            f"未知的损失函数类型: {loss_cfg.loss_type}\n"
-            f"支持的类型: MSE, WeightedTrend"
+            f"未知的损失函数类型: {loss_cfg.loss_type}\n支持的类型: MSE, WeightedTrend"
         )
 
 
-def compute_loss(criterion, pred, label, doy=None, config=None):
+def compute_loss(criterion, pred, label, doy_indices=None, config=None):
     """
     计算损失（根据损失函数类型传递不同参数）
 
@@ -87,7 +120,7 @@ def compute_loss(criterion, pred, label, doy=None, config=None):
         criterion (nn.Module): 损失函数
         pred (torch.Tensor): 预测值（标准化），shape [B, P]
         label (torch.Tensor): 真实值（标准化），shape [B, P]
-        doy (torch.Tensor, optional): 年内日序数，shape [B]（暂时保留参数兼容性）
+        doy_indices (torch.Tensor, optional): DOY 索引 [batch_size, pred_len]
         config: 配置对象（用于获取ta_mean和ta_std）
 
     返回:
@@ -95,19 +128,16 @@ def compute_loss(criterion, pred, label, doy=None, config=None):
 
     异常:
         ValueError: 当损失函数需要的参数未提供时
-
-    示例:
-        >>> loss = compute_loss(criterion, pred, label, doy, config)
     """
     # 标准MSE - 不需要额外参数
     if isinstance(criterion, nn.MSELoss):
         return criterion(pred, label)
 
-    # 加权趋势损失 - 需要ta_mean和ta_std
+    # 加权趋势损失 - 传递 doy_indices
     elif isinstance(criterion, WeightedTrendMSELoss):
         if config is None:
             raise ValueError("WeightedTrendMSELoss需要config参数")
-        return criterion(pred, label)
+        return criterion(pred, label, doy_indices=doy_indices)
 
     else:
         # 未知的损失函数类型，尝试直接调用
@@ -147,10 +177,23 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion, config, devi
     num_batches = 0
 
     for batch_data in dataloader:
-        # 检查是否使用增强数据集（返回doy）
-        if isinstance(batch_data, tuple) and len(batch_data) == 2:
-            graph_data, doy_batch = batch_data
-            doy_batch = doy_batch.to(device)
+        # 防御性检查：collate_fn 返回 None 时跳过
+        if batch_data is None:
+            continue
+
+        # 适配三元组 (graph_data, time_indices, doy_indices) 或二元组
+        # 注意：二元组时第二个元素是 time_idx，不是 doy！
+        doy_batch = None
+        if isinstance(batch_data, tuple):
+            if len(batch_data) == 3:
+                graph_data, _, doy_batch = batch_data  # (graph, time_idx, doy_indices)
+                doy_batch = doy_batch.to(device)
+            elif len(batch_data) == 2:
+                graph_data, _ = batch_data  # (graph, time_idx) - 旧格式，丢弃 time_idx
+                doy_batch = None
+            else:
+                graph_data = batch_data[0]
+                doy_batch = None
         else:
             graph_data = batch_data
             doy_batch = None
@@ -181,10 +224,16 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion, config, devi
         if torch.isnan(loss) or torch.isinf(loss):
             print(f"\n警告: 检测到异常损失值!")
             print(f"  Loss: {loss.item()}")
-            print(f"  Pred - min: {pred.min().item():.4f}, max: {pred.max().item():.4f}, mean: {pred.mean().item():.4f}")
-            print(f"  Label - min: {label.min().item():.4f}, max: {label.max().item():.4f}, mean: {label.mean().item():.4f}")
+            print(
+                f"  Pred - min: {pred.min().item():.4f}, max: {pred.max().item():.4f}, mean: {pred.mean().item():.4f}"
+            )
+            print(
+                f"  Label - min: {label.min().item():.4f}, max: {label.max().item():.4f}, mean: {label.mean().item():.4f}"
+            )
             if doy_batch is not None:
-                print(f"  DOY - min: {doy_batch.min().item():.1f}, max: {doy_batch.max().item():.1f}")
+                print(
+                    f"  DOY - min: {doy_batch.min().item():.1f}, max: {doy_batch.max().item():.1f}"
+                )
             raise ValueError("训练过程中出现 NaN 或 Inf 损失值，训练终止")
 
         # 反向传播
@@ -203,11 +252,13 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion, config, devi
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
 
     # 转换为RMSE（°C）- 与标准训练流程保持一致
-    avg_loss_rmse = np.sqrt(avg_loss * (config.ta_std ** 2))
+    avg_loss_rmse = np.sqrt(avg_loss * (config.ta_std**2))
 
     # 更新学习率（非ReduceLROnPlateau调度器）
     # ReduceLROnPlateau需要验证集损失，在主训练循环中单独处理
-    if scheduler is not None and not isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+    if scheduler is not None and not isinstance(
+        scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau
+    ):
         scheduler.step()
 
     return avg_loss_rmse
@@ -246,10 +297,22 @@ def validate_epoch(model, dataloader, criterion, config, device):
 
     with torch.no_grad():
         for batch_data in dataloader:
-            # 检查是否使用增强数据集
-            if isinstance(batch_data, tuple) and len(batch_data) == 2:
-                graph_data, doy_batch = batch_data
-                doy_batch = doy_batch.to(device)
+            # 防御性检查：collate_fn 返回 None 时跳过
+            if batch_data is None:
+                continue
+
+            # 适配三元组 (graph_data, time_indices, doy_indices) 或二元组
+            doy_batch = None
+            if isinstance(batch_data, tuple):
+                if len(batch_data) == 3:
+                    graph_data, _, doy_batch = batch_data
+                    doy_batch = doy_batch.to(device)
+                elif len(batch_data) == 2:
+                    graph_data, _ = batch_data
+                    doy_batch = None
+                else:
+                    graph_data = batch_data[0]
+                    doy_batch = None
             else:
                 graph_data = batch_data
                 doy_batch = None
@@ -288,14 +351,14 @@ def validate_epoch(model, dataloader, criterion, config, device):
             label_list.append(label_denorm)
 
             # 提取时间索引
-            if hasattr(graph_data, 'time_idx'):
+            if hasattr(graph_data, "time_idx"):
                 time_list.append(graph_data.time_idx.cpu().numpy())
 
     # 计算平均损失（归一化空间）
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
 
     # 转换为RMSE（°C）
-    avg_loss_rmse = np.sqrt(avg_loss * (config.ta_std ** 2))
+    avg_loss_rmse = np.sqrt(avg_loss * (config.ta_std**2))
 
     # 拼接所有批次的结果
     predict_epoch = np.concatenate(predict_list, axis=0)

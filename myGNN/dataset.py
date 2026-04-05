@@ -82,6 +82,132 @@ def _get_years_in_range(start_idx, end_idx):
     return sorted(list(years))
 
 
+def is_leap_year(year):
+    """判断是否为闰年"""
+    return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
+
+
+def normalize_doy_for_statistics(year, raw_doy):
+    """
+    将原始 doy 映射到非闰年 1..365 坐标系，用于阈值统计。
+    闰年2月29日返回 None（排除）。
+    """
+    if is_leap_year(year):
+        if raw_doy == 60:  # 闰年2月29日
+            return None
+        elif raw_doy > 60:
+            return int(raw_doy - 1)
+    return int(raw_doy)
+
+
+def normalize_doy_for_loss(year, raw_doy):
+    """
+    将原始 doy 映射到非闰年 0-based 索引（0..364），用于 loss 查表。
+    注意：数据集中所有2月29日已被排除，此函数不应收到2月29日输入。
+    """
+    if is_leap_year(year) and raw_doy == 60:
+        raise ValueError(
+            f"收到2月29日输入 (year={year}, doy=60)。"
+            "数据集中所有2月29日应已被排除，请检查样本过滤逻辑。"
+        )
+    elif is_leap_year(year) and raw_doy > 60:
+        return int(raw_doy - 2)
+    return int(raw_doy - 1)  # 非闰年: doy=1 -> 索引0
+
+
+def build_station_day_threshold_map(met_data, config, percentile=90, window_radius=7):
+    """
+    基于训练集构建 [365, num_stations] 的动态阈值表。
+
+    对每个站点、每个年内日（1..365）：
+    - 在训练集（2010-2017）中，逐年找到该日对应的真实时间索引
+    - 取前后 window_radius 天的窗口
+    - 收集窗口内该站点的目标特征值（排除2月29日）
+    - 计算 percentile 分位数作为阈值
+
+    Args:
+        met_data: 原始未标准化数据 [time, station, feature]
+        config: 配置对象
+        percentile: 分位数（默认90）
+        window_radius: 前后窗口天数（默认7）
+
+    Returns:
+        threshold_map: np.ndarray [365, num_stations]
+        sample_count_map: np.ndarray [365, num_stations]，记录每个阈值使用的样本数
+    """
+    train_start = config.train_start
+    train_end = config.train_end
+    target_idx = config.target_feature_idx
+    num_stations = met_data.shape[1]
+
+    threshold_map = np.zeros((365, num_stations), dtype=np.float32)
+    sample_count_map = np.zeros((365, num_stations), dtype=np.int32)
+
+    # 预计算年份边界累积值，加速年份查找
+    year_cum = {}
+    cum = 0
+    for y in range(2010, 2020):
+        year_cum[y] = cum
+        cum += 366 if is_leap_year(y) else 365
+
+    # 预计算每个时间索引的年份和 normalized_doy 查表（性能优化）
+    time_to_year = np.zeros(3652, dtype=np.int32)
+    time_to_norm_doy = np.full(3652, -1, dtype=np.int32)  # -1 表示2月29日（排除）
+    for year in range(2010, 2020):
+        start, end = YEAR_BOUNDARIES[year]
+        time_to_year[start:end] = year
+        for i in range(start, end):
+            raw_doy = int(met_data[i, 0, 27])
+            norm = normalize_doy_for_statistics(year, raw_doy)
+            time_to_norm_doy[i] = norm if norm is not None else -1
+
+    # 对每个目标日（1..365）
+    for target_day in range(1, 366):
+        station_values = [[] for _ in range(num_stations)]
+
+        # 对训练年份 2010..2017 逐年处理
+        for year in range(2010, 2018):
+            # 反向映射：normalized_doy -> 该年的真实 raw_doy
+            if is_leap_year(year):
+                if target_day < 60:
+                    anchor_raw_doy = target_day
+                else:
+                    anchor_raw_doy = target_day + 1
+            else:
+                anchor_raw_doy = target_day
+
+            # 计算该年该 raw_doy 对应的全局时间索引
+            anchor_idx = year_cum[year] + anchor_raw_doy - 1  # 0-based
+
+            # 取前后窗口
+            left = max(train_start, anchor_idx - window_radius)
+            right = min(train_end, anchor_idx + window_radius + 1)
+
+            # 收集窗口内的值（使用预计算查表，O(1) 年份判断）
+            for t in range(left, right):
+                # 检查该天是否为2月29日（使用预计算表）
+                if time_to_norm_doy[t] == -1:
+                    continue  # 排除2月29日
+
+                # 矢量化：一次取出所有站点的目标特征值 [num_stations]
+                window_vals = met_data[t, :, target_idx]
+                valid_mask = ~np.isnan(window_vals)
+                for s in np.where(valid_mask)[0]:
+                    station_values[s].append(window_vals[s])
+
+        # 计算每个站点的阈值
+        for s in range(num_stations):
+            vals = np.array(station_values[s], dtype=np.float32)
+            if len(vals) > 0:
+                threshold_map[target_day - 1, s] = np.percentile(vals, percentile)
+                sample_count_map[target_day - 1, s] = len(vals)
+            else:
+                threshold_map[target_day - 1, s] = 35.0
+                sample_count_map[target_day - 1, s] = 0
+
+    return threshold_map, sample_count_map
+
+
 class WeatherGraphDataset(Dataset):
     """
     气象图数据集
@@ -138,6 +264,18 @@ class WeatherGraphDataset(Dataset):
         """返回数据集样本数量"""
         return self.num_samples
 
+    def _contains_leap_day(self, time_idx):
+        """
+        检查预测窗口 [time_idx, time_idx + pred_len) 是否包含2月29日。
+        """
+        for step in range(self.config.pred_len):
+            future_idx = time_idx + step
+            raw_doy = int(self.MetData[future_idx, 0, 27])
+            year = _get_year_from_idx(future_idx)
+            if is_leap_year(year) and raw_doy == 60:
+                return True
+        return False
+
     def _encode_temporal_features(self, time_idx):
         """
         将时间特征转换为4维sin/cos编码
@@ -158,8 +296,8 @@ class WeatherGraphDataset(Dataset):
             current_idx = time_idx - self.config.hist_len + t
 
             # 获取原始时间特征（所有气象站的时间特征相同，取第一个）
-            doy = self.MetData[current_idx, 0, 27]      # 年内日序数 (1-366)
-            month = self.MetData[current_idx, 0, 28]    # 月份 (1-12)
+            doy = self.MetData[current_idx, 0, 27]  # 年内日序数 (1-366)
+            month = self.MetData[current_idx, 0, 28]  # 月份 (1-12)
 
             # 年周期编码
             days_in_year = 366 if doy > 365 else 365
@@ -197,25 +335,40 @@ class WeatherGraphDataset(Dataset):
         Returns:
             data: PyG Data对象
             time_idx: 时间索引（用于追踪）
+            future_doy: 未来预测步对应的 0-based doy 索引 [pred_len]
         """
         time_idx = self.valid_start + idx
 
+        # 如果预测窗口包含2月29日，返回 None（由 collate_fn 过滤）
+        if self._contains_leap_day(time_idx):
+            return None
+
+        # 计算未来 pred_len 步对应的 0-based doy 索引
+        future_doy = []
+        for step in range(self.config.pred_len):
+            future_idx = time_idx + step
+            raw_doy = int(self.MetData[future_idx, 0, 27])
+            year = _get_year_from_idx(future_idx)
+            future_doy.append(normalize_doy_for_loss(year, raw_doy))
+
         # 根据是否启用特征分离选择不同的处理方式
         if self.use_feature_separation:
-            return self._getitem_separated(time_idx)
+            return self._getitem_separated(time_idx, future_doy)
         else:
-            return self._getitem_original(time_idx)
+            return self._getitem_original(time_idx, future_doy)
 
-    def _getitem_original(self, time_idx):
+    def _getitem_original(self, time_idx, future_doy):
         """
         原模式获取样本（保持向后兼容）
 
         Args:
             time_idx: 时间索引
+            future_doy: 未来预测步的 0-based doy 索引列表
 
         Returns:
             data: PyG Data对象
             time_idx: 时间索引张量
+            future_doy: doy 索引张量 [pred_len]
         """
         # 1. 提取历史窗口 [hist_len, num_stations, features]
         hist_window = self.MetData[time_idx - self.config.hist_len : time_idx]
@@ -269,7 +422,7 @@ class WeatherGraphDataset(Dataset):
         else:
             data = Data(x=x_tensor, y=y_tensor, edge_index=self.graph.edge_index)
 
-        return data, torch.LongTensor([time_idx])
+        return data, torch.LongTensor([time_idx]), torch.LongTensor(future_doy)
 
     def _get_static_embedding_for_window(self, time_idx):
         """
@@ -311,7 +464,7 @@ class WeatherGraphDataset(Dataset):
             static_indices = self.config.static_feature_indices
             return hist_window[0, :, static_indices]
 
-    def _getitem_separated(self, time_idx):
+    def _getitem_separated(self, time_idx, future_doy):
         """
         特征分离模式获取样本
 
@@ -325,10 +478,12 @@ class WeatherGraphDataset(Dataset):
 
         Args:
             time_idx: 时间索引
+            future_doy: 未来预测步的 0-based doy 索引列表
 
         Returns:
             data: PyG Data对象
             time_idx: 时间索引张量
+            future_doy: doy 索引张量 [pred_len]
         """
         # 1. 提取动态特征历史窗口
         hist_window = self.MetData[time_idx - self.config.hist_len : time_idx]
@@ -394,7 +549,7 @@ class WeatherGraphDataset(Dataset):
         else:
             data = Data(x=x_tensor, y=y_tensor, edge_index=self.graph.edge_index)
 
-        return data, torch.LongTensor([time_idx])
+        return data, torch.LongTensor([time_idx]), torch.LongTensor(future_doy)
 
 
 def create_dataloaders(config, graph):
@@ -470,6 +625,22 @@ def _create_dataloaders_original(config, graph, MetData):
     )
     print(f"  目标特征90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)")
 
+    # 构建站点-日内动态阈值表（必须在标准化之前，使用原始数据）
+    if getattr(config.loss_config, "use_station_day_threshold", False):
+        print("\n正在构建站点-日内动态阈值表...")
+        threshold_map, sample_count_map = build_station_day_threshold_map(
+            met_data=MetData,
+            config=config,
+            percentile=config.loss_config.threshold_percentile,
+            window_radius=config.loss_config.threshold_window_radius,
+        )
+        print(f"  阈值表形状: {threshold_map.shape}")
+        print(f"  样本数范围: [{sample_count_map.min()}, {sample_count_map.max()}]")
+        print(f"  阈值范围: [{threshold_map.min():.2f}, {threshold_map.max():.2f}]°C")
+    else:
+        threshold_map = None
+        sample_count_map = None
+
     # 3. 标准化
     MetData[:, :, :27] = (MetData[:, :, :27] - feature_mean) / (feature_std + 1e-8)
 
@@ -481,6 +652,8 @@ def _create_dataloaders_original(config, graph, MetData):
         "ta_p90": ta_p90,  # 🆕 添加90分位数
         "feature_mean": feature_mean,
         "feature_std": feature_std,
+        "threshold_map": threshold_map,
+        "threshold_sample_count": sample_count_map,
     }
 
     # 4. 创建数据集
@@ -570,6 +743,22 @@ def _create_dataloaders_separated(config, graph, MetData):
     ta_p90 = float(np.percentile(target_feature_data, 90))
     print(f"\n目标特征(索引{target_idx})90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)")
 
+    # 构建站点-日内动态阈值表（必须在标准化之前，使用原始数据）
+    if getattr(config.loss_config, "use_station_day_threshold", False):
+        print("\n正在构建��点-日内动态阈值表...")
+        threshold_map, sample_count_map = build_station_day_threshold_map(
+            met_data=MetData,
+            config=config,
+            percentile=config.loss_config.threshold_percentile,
+            window_radius=config.loss_config.threshold_window_radius,
+        )
+        print(f"  阈值表形状: {threshold_map.shape}")
+        print(f"  样本数范围: [{sample_count_map.min()}, {sample_count_map.max()}]")
+        print(f"  阈值范围: [{threshold_map.min():.2f}, {threshold_map.max():.2f}]°C")
+    else:
+        threshold_map = None
+        sample_count_map = None
+
     # 3. 标准化整个数据集
     MetData[:, :, static_indices] = (MetData[:, :, static_indices] - static_mean) / (
         static_std + 1e-8
@@ -648,6 +837,8 @@ def _create_dataloaders_separated(config, graph, MetData):
         "static_encoded_by_year": static_encoded_by_year,
         # 向后兼容：保留一个全局静态编码（取所有年份平均）
         "static_encoded": np.mean(list(static_encoded_by_year.values()), axis=0),
+        "threshold_map": threshold_map,
+        "threshold_sample_count": sample_count_map,
     }
 
     # 6. 创建数据集（使用按年份的静态编码）
@@ -705,11 +896,28 @@ def _create_loaders(train_dataset, val_dataset, test_dataset, config):
     """
 
     def collate_fn(batch):
-        """将batch中的样本组合为PyG Batch对象"""
+        """将batch中的样本组合为PyG Batch对象，过滤掉None（2月29日样本）"""
+        # 过滤掉 __getitem__ 返回的 None
+        batch = [b for b in batch if b is not None]
+        if len(batch) == 0:
+            import warnings
+
+            warnings.warn("Batch全部为None（2月29日样本），跳过该batch")
+            return None
+
         data_list = [item[0] for item in batch]
         time_indices = [item[1] for item in batch]
         batched_data = Batch.from_data_list(data_list)
         time_indices = torch.cat(time_indices, dim=0)
+
+        # ★ 将 time_idx 附加到 batched_data，供 validate_epoch 收集
+        batched_data.time_idx = time_indices
+
+        # 新增：处理 doy_indices
+        if len(batch[0]) >= 3:
+            doy_indices = torch.stack([item[2] for item in batch], dim=0)
+            return batched_data, time_indices, doy_indices
+
         return batched_data, time_indices
 
     train_loader = DataLoader(

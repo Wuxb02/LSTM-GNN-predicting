@@ -9,6 +9,7 @@
 应用气象学报, 2025, 36(3): 316-327.
 """
 
+import warnings
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,110 +18,173 @@ import torch.nn.functional as F
 class WeightedTrendMSELoss(nn.Module):
     """
     🔥  自适应加权趋势损失函数
-    
+
     适用场景:
-        - 核心逻辑: 
+        - 核心逻辑:
             1. 仅对高温(Heat)进行不对称惩罚 (漏报惩罚 >> 误报惩罚)
             2. 结合趋势约束 (Trend Constraint)
-    
+
     优化说明:
         - 权重计算: 基于反标准化后的真实温度 (保持物理意义)
         - 梯度计算: 基于标准化后的数据 (防止梯度爆炸)
     """
 
-    def __init__(self, 
-                 alert_temp=35.0,       # 默认高温阈值 (广州常选35度或37度)
-                 c_under=3.0,           # 漏报高温的惩罚系数 (建议设大，因为漏报后果严重)
-                 c_over=1.0,            # 误报高温的惩罚系数
-                 delta=0.1,             # 缓冲项
-                 trend_weight=0.5,      # 趋势项权重 (alpha)
-                 ta_mean=None,          # [必须] 训练集温度均值
-                 ta_std=None):          # [必须] 训练集温度标准差
+    def __init__(
+        self,
+        alert_temp=35.0,
+        c_under=4.0,
+        c_over=2.0,
+        delta=0.1,
+        trend_weight=0,
+        ta_mean=None,
+        ta_std=None,
+        threshold_map=None,
+        use_station_day_threshold=False,
+    ):
         super().__init__()
         self.alert_temp = alert_temp
         self.c_under = c_under
         self.c_over = c_over
         self.delta = delta
-        
         self.trend_weight = trend_weight
         self.ta_mean = ta_mean
         self.ta_std = ta_std
+        self.use_station_day_threshold = use_station_day_threshold
+
+        if threshold_map is not None:
+            self.register_buffer(
+                "threshold_map", torch.as_tensor(threshold_map, dtype=torch.float32)
+            )
+        else:
+            self.threshold_map = None
 
         # 检查必要的统计量
         if self.ta_mean is None or self.ta_std is None:
-            raise ValueError("针对广州数据，必须提供 ta_mean 和 ta_std 以正确还原物理温度进行判定")
-
+            raise ValueError(
+                "针对广州数据，必须提供 ta_mean 和 ta_std 以正确还原物理温度进行判定"
+            )
 
     def _compute_weights(self, pred_actual, label_actual, threshold):
         """
-        计算高温关注权重 (广州模式: 只关注高温)
+        计算高温关注权重。
+        threshold 必须与 label_actual 形状相同（由 forward 保证）。
         """
+        # 断言形状匹配（_gather_dynamic_thresholds 已保证，标量阈值由 full_like 保证）
+        assert threshold.shape == label_actual.shape, (
+            f"threshold shape {threshold.shape} != label_actual shape {label_actual.shape}"
+        )
+
         weights = torch.ones_like(label_actual)
-        
+
         # 1. 漏报高温 (实际 >= 阈值, 但预测值 < 实际值) -> ⚠️ 最严重的错误
-        # 逻辑: 实际是38度，你报了34度，不仅数值有误，而且漏掉了高温信号
         under_mask = (label_actual >= threshold) & (pred_actual < label_actual)
         if under_mask.any():
-            diff = label_actual[under_mask] - threshold
+            diff = label_actual[under_mask] - threshold[under_mask]
             weights[under_mask] += self.c_under * (diff + self.delta)
 
         # 2. 误报高温 (实际 < 阈值, 但预测值 >= 阈值) -> ⚠️ 次要错误
-        # 逻辑: 实际33度，你报了36度。虽然报高了，但至少起到了警示作用。
-        # 使用 detach() 确保我们不通过降低权重来“作弊”
         over_mask = (label_actual < threshold) & (pred_actual >= threshold)
         if over_mask.any():
-            diff = pred_actual[over_mask].detach() - threshold
+            diff = pred_actual[over_mask] - threshold[over_mask]
             weights[over_mask] += self.c_over * (diff + self.delta)
 
-        # 3. 正确命中高温 (实际 >= 阈值, 且 预测值 >= 实际值) -> ✅ 保持高关注
-        # 逻辑: 实际38度，你报了39度。虽然有误差，但正确捕捉了高温事件。
-        valid_high_mask = (label_actual >= threshold) & (pred_actual >= label_actual)
-        if valid_high_mask.any():
-            diff = label_actual[valid_high_mask] - threshold
-            weights[valid_high_mask] += 1 * (diff + self.delta)
+        # 3. 高温未低估 (实际 >= 阈值, 且 预测值 >= 实际值) -> ✅ 保持高关注
+        # 注意: 包含正确命中和过度高估两种情况
+        high_not_under_mask = (label_actual >= threshold) & (
+            pred_actual >= label_actual
+        )
+        if high_not_under_mask.any():
+            diff = label_actual[high_not_under_mask] - threshold[high_not_under_mask]
+            weights[high_not_under_mask] += 1 * (diff + self.delta)
 
         return weights
 
     def _compute_trend_loss(self, pred, label):
         """计算趋势损失 (基于标准化数据)"""
         if pred.shape[1] <= 1:
-            return 0.0
-        
+            return torch.tensor(0.0, device=pred.device)
+
         # 一阶差分: 捕捉升温/降温速率
         diff_pred = pred[:, 1:] - pred[:, :-1]
         diff_label = label[:, 1:] - label[:, :-1]
-        
+
         return F.mse_loss(diff_pred, diff_label)
 
-    def forward(self, pred, label):
+    def _gather_dynamic_thresholds(self, doy_indices, pred_shape):
+        """
+        根据 doy_indices 从 threshold_map 中查出对应的阈值张量���
+
+        Args:
+            doy_indices: [batch_size, pred_len]
+            pred_shape: pred_actual 的形状 [batch_size * num_stations, pred_len]
+
+        Returns:
+            threshold: 与 pred_actual 形状相同的阈值张量 [batch_size * num_stations, pred_len]
+        """
+        map_device = self.threshold_map.device
+        num_stations = self.threshold_map.shape[1]
+
+        # 将 doy_indices 移到 threshold_map 所在设备进行查表
+        doy_on_map = doy_indices.to(map_device)
+
+        # doy_on_map: [batch_size, pred_len] -> [batch_size, 1, pred_len]
+        doy_expanded = doy_on_map.unsqueeze(1).expand(-1, num_stations, -1)
+
+        # station_indices: [num_stations] -> [1, num_stations, 1]
+        # -> 广播到 [batch_size, num_stations, pred_len]
+        station_indices = torch.arange(num_stations, device=map_device).view(
+            1, num_stations, 1
+        )
+
+        # 查表: [batch_size, num_stations, pred_len]
+        threshold = self.threshold_map[doy_expanded, station_indices]
+
+        # reshape 到 pred_shape，并移回 pred_actual 所在设备
+        threshold = threshold.reshape(pred_shape).to(doy_indices.device)
+
+        return threshold
+
+    def forward(self, pred, label, doy_indices=None):
         """
         Args:
-            pred: 模型输出的标准化预测值 (Normalized)
-            label: 标准化的真实标签 (Normalized)
+            pred: 模型输出的标准化预测值 [batch_nodes, pred_len]
+            label: 标准化的真实标签 [batch_nodes, pred_len]
+            doy_indices: 每个样本每个预测步对应的 doy 索引 [batch_size, pred_len]
         """
-        # 1. 反标准化: 还原为摄氏度，用于判断是否超过 35°C 阈值
-        # 使用 no_grad 节省显存，只用于生成权重系数
+        # 1. 反标准化: 还原为摄氏度，用于判断是否超过阈值
         with torch.no_grad():
             pred_actual = pred.detach() * self.ta_std + self.ta_mean
             label_actual = label.detach() * self.ta_std + self.ta_mean
-        
-        # 2. 确定阈值 (固定 35/37 或 自适应)
-        current_threshold = self.alert_temp
-        
+
+        # 2. 确定阈值
+        if (
+            self.use_station_day_threshold
+            and doy_indices is not None
+            and self.threshold_map is not None
+        ):
+            threshold = self._gather_dynamic_thresholds(doy_indices, pred_actual.shape)
+        else:
+            if self.use_station_day_threshold and self.threshold_map is not None:
+                warnings.warn(
+                    "站点-日内动态阈值已启用，但 doy_indices 为 None。"
+                    "回退到固定阈值模式。请确保 DataLoader 正确传递 doy_indices。",
+                    UserWarning,
+                )
+            threshold = torch.full_like(label_actual, self.alert_temp)
+
         # 3. 计算物理权重
-        pixel_weights = self._compute_weights(pred_actual, label_actual, current_threshold)
-        
-        # 4. 计算 Loss (在标准化数值上进行，保证数值稳定性)
-        # Weighted MSE
+        pixel_weights = self._compute_weights(pred_actual, label_actual, threshold)
+
+        # 4. 计算 Loss (在标准化数值上���行，保证数值稳定性)
         weighted_mse = torch.mean(pixel_weights * (pred - label) ** 2)
-        
-        # Trend MSE
-        trend_loss = self._compute_trend_loss(pred, label)
-        
+
+        # Trend MSE (仅在 trend_weight > 0 时计算)
+        if self.trend_weight > 0:
+            trend_loss = self._compute_trend_loss(pred, label)
+        else:
+            trend_loss = torch.tensor(0.0, device=pred.device)
+
         # 5. 总损失
         total_loss = weighted_mse + self.trend_weight * trend_loss
-        
+
         return total_loss
-
-
-

@@ -63,12 +63,19 @@ class LossConfig:
 
         # 🔥 加权趋势MSE损失参数（改进版 - 温度加权 + 趋势约束）
         # 四个核心机制: 精确阈值定义 + 不对称惩罚 + 极端值加权 + 趋势约束
-        self.alert_temp = 35.0              # 高温警戒阈值T_alert (°C) - 固定值或动态更新
-        self.c_under = 4                    # 漏报权重系数(低估高温的惩罚),应较大
-        self.c_over = 2                     # 误报权重系数(高估的惩罚),可较小
-        self.c_default_high = 1.0           # 正确预报高温的权重
-        self.delta = 0.1                    # 小偏置,缓冲max(0,⋅)计算
-        self.trend_weight = 0               # 趋势权重
+        self.alert_temp = 35.0  # 高温警戒阈值T_alert (°C) - 固定值或动态更新
+        self.c_under = 4  # 漏报权重系数(低估高温的惩罚),应较大
+        self.c_over = 2  # 误报权重系数(高估的惩罚),可较小
+        self.c_default_high = 1.0  # 正确预报高温的权重
+        self.delta = 0.1  # 小偏置,缓冲max(0,⋅)计算
+        self.trend_weight = 0  # 趋势权重
+
+        # 站点-日内动态阈值配置
+        self.use_station_day_threshold = (
+            True  # True=启用365x28阈值表, False=使用旧模式
+        )
+        self.threshold_percentile = 90  # 计算阈值的分位数
+        self.threshold_window_radius = 7  # 前后窗口天数（共 2*7+1=15 天）
 
 
 def get_feature_indices_for_graph(config):
@@ -281,10 +288,10 @@ class Config:
 
         # ==================== 训练配置 ====================
         self.batch_size = 32  # 批次大小（从128改为32以平衡内存和收敛速度）
-        self.epochs = 500
+        self.epochs = 5
         self.lr = 0.001
         self.weight_decay = 1e-3  # 从1e-4增大到1e-3以增强正则化
-        self.early_stop = 50      # 早停耐心值
+        self.early_stop = 50  # 早停耐心值
 
         # 优化器配置
         self.optimizer = 'AdamW'  # 'Adam', 'AdamW', 'SGD', 'RMSprop'
@@ -364,7 +371,7 @@ class ArchConfig:
         # ==================== 通用架构参数 ====================
         self.hid_dim = 16  # 隐藏层维度（从32增加到64以提升模型容量）
         self.MLP_layer = 1
-        self.AF = 'ReLU'  # 激活函数：'ReLU', 'LeakyReLU', 'PReLU','GELU'
+        self.AF = "ReLU"  # 激活函数：'ReLU', 'LeakyReLU', 'PReLU','GELU'
 
         # 规范化层类型: 'BatchNorm', 'LayerNorm', 'None'
         # BatchNorm: 适合大batch (>16)，训练/推理有差异
@@ -593,7 +600,18 @@ def print_config(config, arch_config):
     print("\n【损失函数配置】")
     print(f"  损失函数类型: {config.loss_config.loss_type}")
     if config.loss_config.loss_type == "WeightedTrend":
-        print(f"    - 固定阈值: {config.loss_config.alert_temp}°C")
+        if getattr(config.loss_config, "use_station_day_threshold", False):
+            print(f"    - 阈值模式: 站点-日内动态阈值")
+            print(f"    - 分位数: {config.loss_config.threshold_percentile}")
+            print(f"    - 窗口半径: ±{config.loss_config.threshold_window_radius}天")
+            print(f"    - 阈值表形状: (365, 28)")
+        elif config.loss_config.use_dynamic_threshold:
+            print(f"    - 阈值模式: 全局动态阈值（训练集90分位数）")
+            print(f"    - alert_temp: {config.loss_config.alert_temp}°C")
+        else:
+            print(f"    - 阈值模式: 固定阈值")
+            print(f"    - alert_temp: {config.loss_config.alert_temp}°C")
+
         print(f"    - 漏报权重c_under: {config.loss_config.c_under}")
         print(f"    - 误报权重c_over: {config.loss_config.c_over}")
         print(f"    - 正确预报高温权重: {config.loss_config.c_default_high}")

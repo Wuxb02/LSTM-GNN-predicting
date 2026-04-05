@@ -25,6 +25,7 @@ from myGNN.models import GAT_LSTM, GSAGE_LSTM, LSTM_direct, GAT_Pure
 from myGNN.models.GAT_SeparateEncoder import GAT_SeparateEncoder
 from myGNN.models.GSAGE_SeparateEncoder import GSAGE_SeparateEncoder
 
+
 def get_optimizer(model, config):
     """
     优化器工厂函数
@@ -42,32 +43,30 @@ def get_optimizer(model, config):
         - 'SGD': 随机梯度下降（支持动量）
         - 'RMSprop': RMSprop优化器
     """
-    if config.optimizer == 'Adam':
+    if config.optimizer == "Adam":
         return optim.Adam(
             model.parameters(),
             lr=config.lr,
             betas=config.betas,
-            weight_decay=config.weight_decay
+            weight_decay=config.weight_decay,
         )
-    elif config.optimizer == 'AdamW':
+    elif config.optimizer == "AdamW":
         return optim.AdamW(
             model.parameters(),
             lr=config.lr,
             betas=config.betas,
-            weight_decay=config.weight_decay
+            weight_decay=config.weight_decay,
         )
-    elif config.optimizer == 'SGD':
+    elif config.optimizer == "SGD":
         return optim.SGD(
             model.parameters(),
             lr=config.lr,
             momentum=config.momentum,
-            weight_decay=config.weight_decay
+            weight_decay=config.weight_decay,
         )
-    elif config.optimizer == 'RMSprop':
+    elif config.optimizer == "RMSprop":
         return optim.RMSprop(
-            model.parameters(),
-            lr=config.lr,
-            weight_decay=config.weight_decay
+            model.parameters(), lr=config.lr, weight_decay=config.weight_decay
         )
     else:
         raise ValueError(f"未知的优化器类型: {config.optimizer}")
@@ -91,33 +90,27 @@ def get_scheduler(optimizer, config):
         - 'MultiStepLR': 多步长衰减
         - 'None': 不使用调度器
     """
-    if config.scheduler == 'StepLR':
+    if config.scheduler == "StepLR":
         return optim.lr_scheduler.StepLR(
-            optimizer,
-            step_size=config.step_size,
-            gamma=config.gamma
+            optimizer, step_size=config.step_size, gamma=config.gamma
         )
-    elif config.scheduler == 'CosineAnnealingLR':
+    elif config.scheduler == "CosineAnnealingLR":
         return optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=config.T_max,
-            eta_min=config.eta_min
+            optimizer, T_max=config.T_max, eta_min=config.eta_min
         )
-    elif config.scheduler == 'ReduceLROnPlateau':
+    elif config.scheduler == "ReduceLROnPlateau":
         return optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            mode='min',
+            mode="min",
             factor=config.factor,
-            patience=config.patience
+            patience=config.patience,
             # verbose=True
         )
-    elif config.scheduler == 'MultiStepLR':
+    elif config.scheduler == "MultiStepLR":
         return optim.lr_scheduler.MultiStepLR(
-            optimizer,
-            milestones=config.milestones,
-            gamma=config.gamma
+            optimizer, milestones=config.milestones, gamma=config.gamma
         )
-    elif config.scheduler == 'None' or config.scheduler is None:
+    elif config.scheduler == "None" or config.scheduler is None:
         return None
     else:
         raise ValueError(f"未知的调度器类型: {config.scheduler}")
@@ -146,19 +139,19 @@ def get_model(config, arch_arg):
         - 'GSAGE_SeparateEncoder': GraphSAGE + 分离式编码器（静态/动态分离）
     """
     # ===== 基础模型 =====
-    if config.exp_model == 'GAT_LSTM':
+    if config.exp_model == "GAT_LSTM":
         return GAT_LSTM(config, arch_arg)
-    elif config.exp_model == 'GSAGE_LSTM':
+    elif config.exp_model == "GSAGE_LSTM":
         return GSAGE_LSTM(config, arch_arg)
-    elif config.exp_model == 'LSTM':
+    elif config.exp_model == "LSTM":
         return LSTM_direct(config, arch_arg)
-    elif config.exp_model == 'GAT_Pure':
+    elif config.exp_model == "GAT_Pure":
         return GAT_Pure(config, arch_arg)
 
     # ===== 分离式编码模型 =====
-    elif config.exp_model == 'GAT_SeparateEncoder':
+    elif config.exp_model == "GAT_SeparateEncoder":
         return GAT_SeparateEncoder(config, arch_arg)
-    elif config.exp_model == 'GSAGE_SeparateEncoder':
+    elif config.exp_model == "GSAGE_SeparateEncoder":
         return GSAGE_SeparateEncoder(config, arch_arg)
 
     else:
@@ -242,183 +235,223 @@ def get_metrics_per_step(predict_epoch, label_epoch):
         # 计算该步长的整体指标（所有样本、所有站点）
         rmse, mae, r2, bias = get_metric(pred_step, label_step)
 
-        metrics_per_step.append({
-            'step': step + 1,  # 从1开始计数（第1步、第2步...）
-            'rmse': rmse,
-            'mae': mae,
-            'r2': r2,
-            'bias': bias
-        })
+        metrics_per_step.append(
+            {
+                "step": step + 1,  # 从1开始计数（第1步、第2步...）
+                "rmse": rmse,
+                "mae": mae,
+                "r2": r2,
+                "bias": bias,
+            }
+        )
 
     return metrics_per_step
 
 
-def get_extreme_metrics(predict_epoch, label_epoch,
-                        high_thresholds=[28, 30, 35],
-                        low_thresholds=[0, -5, -10]):
+def get_extreme_metrics(
+    predict_epoch,
+    label_epoch,
+    high_thresholds=[35],
+    low_thresholds=None,
+    threshold_array=None,
+):
     """
-    计算极端值监控指标
+    计算极端值监控指标（二分组：高于阈值 vs 低于阈值）
 
     Args:
         predict_epoch: 预测值数组 [num_samples, num_stations, pred_len]
         label_epoch: 真实值数组 [num_samples, num_stations, pred_len]
-        high_thresholds: 高温阈值列表 [轻度, 中度, 极端]
-        low_thresholds: 低温阈值列表 [轻度, 中度, 极端]
+        high_thresholds: 高温阈值列表，仅当 threshold_array 为 None 时使用
+        low_thresholds: 保留参数，不再使用
+        threshold_array: 与 label_epoch 同形状的逐样本阈值数组。
+                         若提供，则逐样本比较（动态阈值模式）。
 
     Returns:
-        dict: 极端值指标字典
+        dict:
         {
-            'high_temp': [  # 高温事件
-                {'threshold': 28, 'sample_count': 150, 'percentage': 12.5,
-                 'rmse': 1.52, 'mae': 1.23, 'bias': -0.35,
-                 'underestimate_rate': 64.8, 'overestimate_rate': 35.2,
-                 'hit_rate': 78.5, 'false_alarm_rate': 5.2, 'miss_rate': 21.5},
-                ...
-            ],
-            'low_temp': [...],  # 低温事件
-            'normal_temp': {'sample_count': ..., 'percentage': ...}
+            'high_temp': [{'threshold': T, 'sample_count': N, 'percentage': %, ...}],
+            'low_temp':  [{'threshold': T, 'sample_count': N, 'percentage': %, ...}],
+            'normal_temp': {'sample_count': N, 'percentage': %, 'range': '...'}
         }
     """
-    # 展平数组以便统计: [num_samples * num_stations * pred_len]
     pred_flat = predict_epoch.flatten()
     label_flat = label_epoch.flatten()
     total_samples = len(label_flat)
 
-    result = {
-        'high_temp': [],
-        'low_temp': [],
-        'normal_temp': {}
-    }
+    result = {"high_temp": [], "low_temp": [], "normal_temp": {}}
 
-    # 计算高温事件指标
-    for threshold in sorted(high_thresholds, reverse=True):
-        # 真实值超过阈值的样本
-        extreme_mask = label_flat >= threshold
-        sample_count = np.sum(extreme_mask)
+    if threshold_array is not None:
+        # 动态阈值模式：逐样本比较
+        thr_flat = threshold_array.flatten()
+        assert thr_flat.shape == label_flat.shape, (
+            f"threshold_array shape {thr_flat.shape} != label shape {label_flat.shape}"
+        )
 
-        if sample_count == 0:
-            # 没有样本,跳过
-            continue
+        high_mask = label_flat >= thr_flat
+        high_count = int(np.sum(high_mask))
 
-        percentage = (sample_count / total_samples) * 100
+        # 报告用中位数作为代表值
+        report_threshold = float(np.median(threshold_array))
 
-        # 提取极端值样本
-        pred_extreme = pred_flat[extreme_mask]
-        label_extreme = label_flat[extreme_mask]
+        if high_count > 0:
+            pred_h = pred_flat[high_mask]
+            label_h = label_flat[high_mask]
+            thr_h = thr_flat[high_mask]
 
-        # 计算RMSE和MAE
-        rmse = np.sqrt(np.mean((pred_extreme - label_extreme) ** 2))
-        mae = np.mean(np.abs(pred_extreme - label_extreme))
-        bias = np.mean(pred_extreme - label_extreme)
+            rmse = np.sqrt(np.mean((pred_h - label_h) ** 2))
+            mae = np.mean(np.abs(pred_h - label_h))
+            bias = np.mean(pred_h - label_h)
 
-        # 计算高估/低估率
-        underestimate_count = np.sum(pred_extreme < label_extreme)
-        overestimate_count = np.sum(pred_extreme >= label_extreme)
-        underestimate_rate = (underestimate_count / sample_count) * 100
-        overestimate_rate = (overestimate_count / sample_count) * 100
+            underestimate_rate = np.mean(pred_h < label_h) * 100
+            overestimate_rate = np.mean(pred_h >= label_h) * 100
 
-        # 计算预测准确性
-        # 命中率: 真实值≥阈值 且 预测值也≥阈值的比例
-        hit_count = np.sum(pred_extreme >= threshold)
-        hit_rate = (hit_count / sample_count) * 100
+            hit_count = int(np.sum(pred_h >= thr_h))
+            hit_rate = hit_count / high_count * 100
+            miss_rate = 100 - hit_rate
 
-        # 误报率: 预测值≥阈值 但真实值<阈值的比例
-        false_alarm_mask = (pred_flat >= threshold) & (label_flat < threshold)
-        false_alarm_count = np.sum(false_alarm_mask)
-        total_normal = total_samples - sample_count
-        false_alarm_rate = (false_alarm_count / total_normal * 100) if total_normal > 0 else 0
+            false_alarm_mask = (pred_flat >= thr_flat) & (label_flat < thr_flat)
+            total_normal = total_samples - high_count
+            false_alarm_rate = (
+                np.sum(false_alarm_mask) / total_normal * 100
+                if total_normal > 0
+                else 0.0
+            )
 
-        # 漏报率: 真实值≥阈值 但预测值<阈值的比例
-        miss_count = sample_count - hit_count
-        miss_rate = (miss_count / sample_count) * 100
+            result["high_temp"].append(
+                {
+                    "threshold": report_threshold,
+                    "sample_count": high_count,
+                    "percentage": high_count / total_samples * 100,
+                    "rmse": rmse,
+                    "mae": mae,
+                    "bias": bias,
+                    "underestimate_rate": underestimate_rate,
+                    "overestimate_rate": overestimate_rate,
+                    "hit_rate": hit_rate,
+                    "false_alarm_rate": false_alarm_rate,
+                    "miss_rate": miss_rate,
+                }
+            )
 
-        result['high_temp'].append({
-            'threshold': threshold,
-            'sample_count': int(sample_count),
-            'percentage': percentage,
-            'rmse': rmse,
-            'mae': mae,
-            'bias': bias,
-            'underestimate_rate': underestimate_rate,
-            'overestimate_rate': overestimate_rate,
-            'hit_rate': hit_rate,
-            'false_alarm_rate': false_alarm_rate,
-            'miss_rate': miss_rate
-        })
+        # ── 低于阈值组 ──
+        low_mask = label_flat < thr_flat
+        low_count = int(np.sum(low_mask))
 
-    # 计算低温事件指标
-    for threshold in sorted(low_thresholds, reverse=True):
-        # 真实值低于阈值的样本
-        extreme_mask = label_flat <= threshold
-        sample_count = np.sum(extreme_mask)
-
-        if sample_count == 0:
-            continue
-
-        percentage = (sample_count / total_samples) * 100
-
-        # 提取极端值样本
-        pred_extreme = pred_flat[extreme_mask]
-        label_extreme = label_flat[extreme_mask]
-
-        # 计算RMSE和MAE
-        rmse = np.sqrt(np.mean((pred_extreme - label_extreme) ** 2))
-        mae = np.mean(np.abs(pred_extreme - label_extreme))
-        bias = np.mean(pred_extreme - label_extreme)
-
-        # 计算高估/低估率
-        overestimate_count = np.sum(pred_extreme > label_extreme)
-        underestimate_count = np.sum(pred_extreme <= label_extreme)
-        overestimate_rate = (overestimate_count / sample_count) * 100
-        underestimate_rate = (underestimate_count / sample_count) * 100
-
-        # 计算预测准确性
-        # 命中率: 真实值≤阈值 且 预测值也≤阈值的比例
-        hit_count = np.sum(pred_extreme <= threshold)
-        hit_rate = (hit_count / sample_count) * 100
-
-        # 误报率: 预测值≤阈值 但真实值>阈值的比例
-        false_alarm_mask = (pred_flat <= threshold) & (label_flat > threshold)
-        false_alarm_count = np.sum(false_alarm_mask)
-        total_normal = total_samples - sample_count
-        false_alarm_rate = (false_alarm_count / total_normal * 100) if total_normal > 0 else 0
-
-        # 漏报率: 真实值≤阈值 但预测值>阈值的比例
-        miss_count = sample_count - hit_count
-        miss_rate = (miss_count / sample_count) * 100
-
-        result['low_temp'].append({
-            'threshold': threshold,
-            'sample_count': int(sample_count),
-            'percentage': percentage,
-            'rmse': rmse,
-            'mae': mae,
-            'bias': bias,
-            'underestimate_rate': underestimate_rate,
-            'overestimate_rate': overestimate_rate,
-            'hit_rate': hit_rate,
-            'false_alarm_rate': false_alarm_rate,
-            'miss_rate': miss_rate
-        })
-
-    # 计算正常温度范围的样本统计
-    if high_thresholds and low_thresholds:
-        min_high = min(high_thresholds)
-        max_low = max(low_thresholds)
-        normal_mask = (label_flat > max_low) & (label_flat < min_high)
-        normal_count = np.sum(normal_mask)
-        result['normal_temp'] = {
-            'sample_count': int(normal_count),
-            'percentage': (normal_count / total_samples) * 100,
-            'range': f'{max_low}°C ~ {min_high}°C'
+        result["normal_temp"] = {
+            "sample_count": low_count,
+            "percentage": low_count / total_samples * 100,
+            "range": f"< 动态阈值 (中位数 {report_threshold:.2f}°C)",
         }
+
+        if low_count > 0:
+            pred_l = pred_flat[low_mask]
+            label_l = label_flat[low_mask]
+            thr_l = thr_flat[low_mask]
+
+            # 低于阈值组：命中率=正确预测低于阈值，误报率=预测高于但实际低于
+            hit_rate_l = np.mean(pred_l < thr_l) * 100
+            false_alarm_rate_l = np.mean(pred_l >= thr_l) * 100
+
+            result["low_temp"].append(
+                {
+                    "threshold": report_threshold,
+                    "sample_count": low_count,
+                    "percentage": low_count / total_samples * 100,
+                    "rmse": np.sqrt(np.mean((pred_l - label_l) ** 2)),
+                    "mae": np.mean(np.abs(pred_l - label_l)),
+                    "bias": np.mean(pred_l - label_l),
+                    "underestimate_rate": np.mean(pred_l < label_l) * 100,
+                    "overestimate_rate": np.mean(pred_l >= label_l) * 100,
+                    "hit_rate": hit_rate_l,
+                    "false_alarm_rate": false_alarm_rate_l,
+                    "miss_rate": 0.0,
+                }
+            )
+    else:
+        # 固定阈值模式
+        threshold = sorted(high_thresholds, reverse=True)[0]
+
+        high_mask = label_flat >= threshold
+        high_count = int(np.sum(high_mask))
+
+        if high_count > 0:
+            pred_h = pred_flat[high_mask]
+            label_h = label_flat[high_mask]
+
+            rmse = np.sqrt(np.mean((pred_h - label_h) ** 2))
+            mae = np.mean(np.abs(pred_h - label_h))
+            bias = np.mean(pred_h - label_h)
+
+            underestimate_rate = np.mean(pred_h < label_h) * 100
+            overestimate_rate = np.mean(pred_h >= label_h) * 100
+
+            hit_count = int(np.sum(pred_h >= threshold))
+            hit_rate = hit_count / high_count * 100
+            miss_rate = 100 - hit_rate
+
+            false_alarm_mask = (pred_flat >= threshold) & (label_flat < threshold)
+            total_normal = total_samples - high_count
+            false_alarm_rate = (
+                np.sum(false_alarm_mask) / total_normal * 100
+                if total_normal > 0
+                else 0.0
+            )
+
+            result["high_temp"].append(
+                {
+                    "threshold": threshold,
+                    "sample_count": high_count,
+                    "percentage": high_count / total_samples * 100,
+                    "rmse": rmse,
+                    "mae": mae,
+                    "bias": bias,
+                    "underestimate_rate": underestimate_rate,
+                    "overestimate_rate": overestimate_rate,
+                    "hit_rate": hit_rate,
+                    "false_alarm_rate": false_alarm_rate,
+                    "miss_rate": miss_rate,
+                }
+            )
+
+        low_mask = label_flat < threshold
+        low_count = int(np.sum(low_mask))
+
+        result["normal_temp"] = {
+            "sample_count": low_count,
+            "percentage": low_count / total_samples * 100,
+            "range": f"< {threshold}°C",
+        }
+
+        if low_count > 0:
+            pred_l = pred_flat[low_mask]
+            label_l = label_flat[low_mask]
+
+            result["low_temp"].append(
+                {
+                    "threshold": threshold,
+                    "sample_count": low_count,
+                    "percentage": low_count / total_samples * 100,
+                    "rmse": np.sqrt(np.mean((pred_l - label_l) ** 2)),
+                    "mae": np.mean(np.abs(pred_l - label_l)),
+                    "bias": np.mean(pred_l - label_l),
+                    "underestimate_rate": np.mean(pred_l < label_l) * 100,
+                    "overestimate_rate": np.mean(pred_l >= label_l) * 100,
+                    "hit_rate": np.mean(pred_l < threshold) * 100,
+                    "false_alarm_rate": 0.0,
+                    "miss_rate": np.mean(pred_l >= threshold) * 100,
+                }
+            )
 
     return result
 
 
-def get_extreme_metrics_per_step(predict_epoch, label_epoch,
-                                  high_thresholds=[28, 30, 35],
-                                  low_thresholds=[0, -5, -10]):
+def get_extreme_metrics_per_step(
+    predict_epoch,
+    label_epoch,
+    high_thresholds=[35],
+    low_thresholds=None,
+    threshold_array=None,
+):
     """
     计算每个预测步长的极端值指标
 
@@ -427,6 +460,7 @@ def get_extreme_metrics_per_step(predict_epoch, label_epoch,
         label_epoch: 真实值数组 [num_samples, num_stations, pred_len]
         high_thresholds: 高温阈值列表
         low_thresholds: 低温阈值列表
+        threshold_array: 逐样本阈值数组 [num_samples, num_stations, pred_len]
 
     Returns:
         list[dict]: 每个步长的极端值指标字典列表
@@ -439,19 +473,25 @@ def get_extreme_metrics_per_step(predict_epoch, label_epoch,
         pred_step = predict_epoch[:, :, step]
         label_step = label_epoch[:, :, step]
 
+        # 提取该步长的阈值: [num_samples, num_stations]
+        thr_step = None
+        if threshold_array is not None:
+            thr_step = threshold_array[:, :, step]
+
         # 扩展维度以匹配get_extreme_metrics的输入格式
         # [num_samples, num_stations] -> [num_samples, num_stations, 1]
         pred_step_3d = pred_step[:, :, np.newaxis]
         label_step_3d = label_step[:, :, np.newaxis]
+        thr_step_3d = thr_step[:, :, np.newaxis] if thr_step is not None else None
 
         # 计算该步长的极端值指标
         step_metrics = get_extreme_metrics(
-            pred_step_3d, label_step_3d,
-            high_thresholds=high_thresholds,
-            low_thresholds=low_thresholds
+            pred_step_3d,
+            label_step_3d,
+            threshold_array=thr_step_3d,
         )
 
-        step_metrics['step'] = step + 1
+        step_metrics["step"] = step + 1
         metrics_per_step.append(step_metrics)
 
     return metrics_per_step
@@ -502,14 +542,22 @@ def train(train_loader, model, optimizer, scheduler, config):
         if torch.isnan(loss) or torch.isinf(loss):
             print(f"\n✗ 检测到异常损失 (Batch {batch_idx}):")
             print(f"  Loss: {loss.item()}")
-            print(f"  Pred - min: {ta_pred.min().item():.4f}, max: {ta_pred.max().item():.4f}, "
-                  f"mean: {ta_pred.mean().item():.4f}")
-            print(f"  Pred - NaN: {torch.isnan(ta_pred).sum().item()}, "
-                  f"Inf: {torch.isinf(ta_pred).sum().item()}")
-            print(f"  Label - min: {ta_label.min().item():.4f}, max: {ta_label.max().item():.4f}, "
-                  f"mean: {ta_label.mean().item():.4f}")
-            print(f"  Label - NaN: {torch.isnan(ta_label).sum().item()}, "
-                  f"Inf: {torch.isinf(ta_label).sum().item()}")
+            print(
+                f"  Pred - min: {ta_pred.min().item():.4f}, max: {ta_pred.max().item():.4f}, "
+                f"mean: {ta_pred.mean().item():.4f}"
+            )
+            print(
+                f"  Pred - NaN: {torch.isnan(ta_pred).sum().item()}, "
+                f"Inf: {torch.isinf(ta_pred).sum().item()}"
+            )
+            print(
+                f"  Label - min: {ta_label.min().item():.4f}, max: {ta_label.max().item():.4f}, "
+                f"mean: {ta_label.mean().item():.4f}"
+            )
+            print(
+                f"  Label - NaN: {torch.isnan(ta_label).sum().item()}, "
+                f"Inf: {torch.isinf(ta_label).sum().item()}"
+            )
             raise ValueError("训练过程中出现NaN或Inf损失，训练终止")
 
         loss.backward()
@@ -522,10 +570,12 @@ def train(train_loader, model, optimizer, scheduler, config):
 
     train_loss /= len(train_loader)
     # 反标准化：转换为实际温度的RMSE
-    train_loss = np.sqrt(train_loss * (config.ta_std ** 2))
+    train_loss = np.sqrt(train_loss * (config.ta_std**2))
 
     # 更新学习率（非ReduceLROnPlateau调度器在这里更新）
-    if scheduler is not None and not isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+    if scheduler is not None and not isinstance(
+        scheduler, optim.lr_scheduler.ReduceLROnPlateau
+    ):
         scheduler.step()
 
     return train_loss
@@ -574,15 +624,19 @@ def val(val_loader, model, config):
             time_arr = batch[1]
 
             # 反标准化
-            ta_pred_val = ta_pred.cpu().detach().numpy() * config.ta_std + config.ta_mean
-            ta_label_val = ta_label.cpu().detach().numpy() * config.ta_std + config.ta_mean
+            ta_pred_val = (
+                ta_pred.cpu().detach().numpy() * config.ta_std + config.ta_mean
+            )
+            ta_label_val = (
+                ta_label.cpu().detach().numpy() * config.ta_std + config.ta_mean
+            )
 
             predict_list.append(ta_pred_val)
             label_list.append(ta_label_val)
             time_list.append(time_arr.cpu().detach().numpy())
 
     val_loss /= len(val_loader)
-    val_loss = np.sqrt(val_loss * (config.ta_std ** 2))
+    val_loss = np.sqrt(val_loss * (config.ta_std**2))
 
     predict_epoch = np.concatenate(predict_list, axis=0)
     label_epoch = np.concatenate(label_list, axis=0)
@@ -626,11 +680,12 @@ def test(test_loader, model, config, arch_arg=None):
     # 可解释性模式
     interpretability_mode = False
     if arch_arg is not None:
-        interpretability_mode = getattr(arch_arg, 'interpretability_mode', False)
+        interpretability_mode = getattr(arch_arg, "interpretability_mode", False)
 
     attention_records = None
     if interpretability_mode:
         from interpretability import AttentionRecorder
+
         attention_records = AttentionRecorder()
 
     # 检查模型是否支持返回注意力
@@ -661,8 +716,14 @@ def test(test_loader, model, config, arch_arg=None):
                 # 记录注意力
                 for key, value in attn_dict.items():
                     attention_records.record(
-                        key, value,
-                        metadata={'batch': batch_idx, 'time': batch[1].item() if batch[1].numel() == 1 else batch[1][0].item()}
+                        key,
+                        value,
+                        metadata={
+                            "batch": batch_idx,
+                            "time": batch[1].item()
+                            if batch[1].numel() == 1
+                            else batch[1][0].item(),
+                        },
                     )
             else:
                 if edge_attr is not None:
@@ -675,15 +736,19 @@ def test(test_loader, model, config, arch_arg=None):
             test_loss += loss.item()
 
             # 反标准化
-            ta_pred_val = ta_pred.cpu().detach().numpy() * config.ta_std + config.ta_mean
-            ta_label_val = ta_label.cpu().detach().numpy() * config.ta_std + config.ta_mean
+            ta_pred_val = (
+                ta_pred.cpu().detach().numpy() * config.ta_std + config.ta_mean
+            )
+            ta_label_val = (
+                ta_label.cpu().detach().numpy() * config.ta_std + config.ta_mean
+            )
 
             predict_list.append(ta_pred_val)
             label_list.append(ta_label_val)
             time_list.append(time_arr.cpu().detach().numpy())
 
     test_loss /= len(test_loader)
-    test_loss = np.sqrt(test_loss * (config.ta_std ** 2))
+    test_loss = np.sqrt(test_loss * (config.ta_std**2))
 
     predict_epoch = np.concatenate(predict_list, axis=0)
     label_epoch = np.concatenate(label_list, axis=0)
@@ -700,8 +765,9 @@ def test(test_loader, model, config, arch_arg=None):
 
     # 保存注意力权重
     if interpretability_mode and attention_records is not None:
-        save_path = getattr(arch_arg, 'attention_save_path', 'attention_weights/')
+        save_path = getattr(arch_arg, "attention_save_path", "attention_weights/")
         from pathlib import Path
+
         Path(save_path).mkdir(parents=True, exist_ok=True)
         attention_records.save(f"{save_path}/attention_weights.npz")
         print(f"注意力权重已保存到: {save_path}/attention_weights.npz")
@@ -722,21 +788,23 @@ def get_exp_info(config):
     Returns:
         exp_info: 实验信息字符串
     """
-    exp_info = '============== Train Info ==============\n' + \
-               f'Dataset: {config.dataset_num}\n' + \
-               f'Model: {config.exp_model}\n' + \
-               f'Train: {config.train_start} --> {config.train_end}\n' + \
-               f'Val: {config.val_start} --> {config.val_end}\n' + \
-               f'Test: {config.test_start} --> {config.test_end}\n' + \
-               f'Stations: {config.node_num}\n' + \
-               f'Input Dimension: {config.in_dim}\n' + \
-               f'Batch Size: {config.batch_size}\n' + \
-               f'Epochs: {config.epochs}\n' + \
-               f'History Length: {config.hist_len} days\n' + \
-               f'Prediction Length: {config.pred_len} days\n' + \
-               f'Learning Rate: {config.lr}\n' + \
-               f'Weight Decay: {config.weight_decay}\n' + \
-               f'Early Stop: {config.early_stop}\n' + \
-               f'Device: {config.device}\n' + \
-               '========================================\n'
+    exp_info = (
+        "============== Train Info ==============\n"
+        + f"Dataset: {config.dataset_num}\n"
+        + f"Model: {config.exp_model}\n"
+        + f"Train: {config.train_start} --> {config.train_end}\n"
+        + f"Val: {config.val_start} --> {config.val_end}\n"
+        + f"Test: {config.test_start} --> {config.test_end}\n"
+        + f"Stations: {config.node_num}\n"
+        + f"Input Dimension: {config.in_dim}\n"
+        + f"Batch Size: {config.batch_size}\n"
+        + f"Epochs: {config.epochs}\n"
+        + f"History Length: {config.hist_len} days\n"
+        + f"Prediction Length: {config.pred_len} days\n"
+        + f"Learning Rate: {config.lr}\n"
+        + f"Weight Decay: {config.weight_decay}\n"
+        + f"Early Stop: {config.early_stop}\n"
+        + f"Device: {config.device}\n"
+        + "========================================\n"
+    )
     return exp_info
