@@ -57,3 +57,6 @@ analysis_results/
 figdraw/result/
 figdraw/*.jpg
 figdraw/*.png
+
+
+tuning_results/

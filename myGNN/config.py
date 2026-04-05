@@ -305,8 +305,8 @@ class Config:
         self.step_size = 10      # 每隔多少epoch衰减一次
         self.gamma = 0.9         # 学习率衰减系数
         # CosineAnnealingLR参数
-        self.T_max = 50          # 余弦退火周期
-        self.eta_min = 1e-4      # 最小学习率
+        self.T_max = 100          # 余弦退火周期
+        self.eta_min = self.lr*0.1      # 最小学习率
         # ReduceLROnPlateau参数
         self.patience = 20       # 性能不提升的耐心值
         self.factor = 0.8        # 学习率衰减因子
