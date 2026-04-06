@@ -56,7 +56,7 @@ class LossConfig:
 
     def __init__(self):
         # 损失函数类型选择（这是唯一需要修改的配置！）
-        self.loss_type = "WeightedTrend"  # WeightedTrend
+        self.loss_type = "MSE"  # WeightedTrend
 
         # 🆕 高温阈值计算模式
         self.use_dynamic_threshold = True  # True=使用90分位数, False=使用固定值
@@ -71,9 +71,7 @@ class LossConfig:
         self.trend_weight = 0  # 趋势权重
 
         # 站点-日内动态阈值配置
-        self.use_station_day_threshold = (
-            True  # True=启用365x28阈值表, False=使用旧模式
-        )
+        self.use_station_day_threshold = True  # True=启用365x28阈值表, False=使用旧模式
         self.threshold_percentile = 90  # 计算阈值的分位数
         self.threshold_window_radius = 7  # 前后窗口天数（共 2*7+1=15 天）
 
@@ -158,8 +156,8 @@ class Config:
         self.dataset_num = "real_data_2010_2019"
 
         # ==================== 时间窗口配置 ====================
-        self.hist_len = 14         # 历史窗口长度（天）
-        self.pred_len = 5         # 预测长度（天）
+        self.hist_len = 14  # 历史窗口长度（天）
+        self.pred_len = 5  # 预测长度（天）
 
         # ==================== 特征配置 ====================
         # 原始特征索引（0-28共29个）:
@@ -178,8 +176,9 @@ class Config:
         # 25-26: VegHeight_mean, VegHeight_std (植被高度特征)
         # 27-28: doy, month (时间，将被转换为sin/cos)
 
-        self.base_feature_dim = 29        # 原始特征维度（0-28）
-        self.target_feature_idx = 5       # 预测目标：索引5 = tave
+        self.base_feature_dim = 29  # 原始特征维度（0-28）
+        # 预测目标：可以是数字索引（如 5 = tave, 8 = rh）或字符串 "wb"（湿球温度）
+        self.target_feature_idx =4  # 预测目标：索引5 = tave, "wb" = 湿球温度
 
         # 特征选择（None表示使用所有基础特征，即0-25，移除doy和month）
         # 可设置为列表选择部分特征
@@ -187,7 +186,7 @@ class Config:
 
         # 时间编码配置
         self.add_temporal_encoding = True  # 是否添加sin/cos时间编码
-        self.temporal_features = 4         # 时间编码维度（年周期2 + 月周期2）
+        self.temporal_features = 4  # 时间编码维度（年周期2 + 月周期2）
 
         # ==================== 特征分离配置 ====================
         # 是否启用静态/动态特征分离编码
@@ -206,7 +205,7 @@ class Config:
         # 19-24: NDVI, surface_pressure, surface_solar_radiation, u_wind, v_wind,
         #         total_precipitation_sum
         # 注意：doy(27)和month(28)将单独转换为sin/cos编码
-        self.dynamic_feature_indices = [5, 8, 21, 22, 23, 24]
+        self.dynamic_feature_indices = [4, 8, 21, 22, 23, 24]
 
         # 配置验证
         if self.use_feature_separation:
@@ -267,7 +266,7 @@ class Config:
         self.graph_type = "inv_dis"  # 默认使用逆距离权重图
 
         # K近邻图参数（用于 'inv_dis' 和 'knn' 类型）
-        self.top_neighbors = 5
+        self.top_neighbors = 6
         self.use_edge_attr = False  # 是否使用边属性（逆距离权重）
 
         # 空间相似性图参数（用于 'spatial_similarity' 类型）
@@ -288,28 +287,28 @@ class Config:
 
         # ==================== 训练配置 ====================
         self.batch_size = 32  # 批次大小（从128改为32以平衡内存和收敛速度）
-        self.epochs = 5
-        self.lr = 0.001
-        self.weight_decay = 1e-3  # 从1e-4增大到1e-3以增强正则化
+        self.epochs = 500
+        self.lr = 0.0002
+        self.weight_decay = 0.0002  # 从1e-4增大到1e-3以增强正则化
         self.early_stop = 50  # 早停耐心值
 
         # 优化器配置
-        self.optimizer = 'AdamW'  # 'Adam', 'AdamW', 'SGD', 'RMSprop'
-        self.momentum = 0.9      # SGD动量参数
+        self.optimizer = "Adam"  # 'Adam', 'AdamW', 'SGD', 'RMSprop'
+        self.momentum = 0.9  # SGD动量参数
         self.betas = (0.9, 0.999)  # Adam/AdamW的beta参数
 
         # 学习率调度器配置
         # 'StepLR', 'CosineAnnealingLR', 'ReduceLROnPlateau', 'MultiStepLR', 'None'
-        self.scheduler = "ReduceLROnPlateau"
+        self.scheduler = "CosineAnnealingLR"
         # StepLR参数
-        self.step_size = 10      # 每隔多少epoch衰减一次
-        self.gamma = 0.9         # 学习率衰减系数
+        self.step_size = 10  # 每隔多少epoch衰减一次
+        self.gamma = 0.9  # 学习率衰减系数
         # CosineAnnealingLR参数
-        self.T_max = 100          # 余弦退火周期
-        self.eta_min = self.lr*0.1      # 最小学习率
+        self.T_max = 100  # 余弦退火周期
+        self.eta_min = self.lr * 0.1  # 最小学习率
         # ReduceLROnPlateau参数
-        self.patience = 20       # 性能不提升的耐心值
-        self.factor = 0.8        # 学习率衰减因子
+        self.patience = 20  # 性能不提升的耐心值
+        self.factor = 0.8  # 学习率衰减因子
         # MultiStepLR参数
         self.milestones = [50, 100, 150]  # 学习率衰减的epoch列表
 
@@ -369,9 +368,9 @@ class ArchConfig:
 
     def __init__(self):
         # ==================== 通用架构参数 ====================
-        self.hid_dim = 16  # 隐藏层维度（从32增加到64以提升模型容量）
+        self.hid_dim = 32  # 隐藏层维度（从32增加到64以提升模型容量）
         self.MLP_layer = 1
-        self.AF = "ReLU"  # 激活函数：'ReLU', 'LeakyReLU', 'PReLU','GELU'
+        self.AF = "LeakyReLU"  # 激活函数：'ReLU', 'LeakyReLU', 'PReLU','GELU'
 
         # 规范化层类型: 'BatchNorm', 'LayerNorm', 'None'
         # BatchNorm: 适合大batch (>16)，训练/推理有差异
@@ -382,7 +381,7 @@ class ArchConfig:
 
         # ==================== GAT特定参数 ====================
         self.GAT_layer = 1  # GAT层数（从2增加到3以增强图学习能力）
-        self.heads = 1         # 注意力头数
+        self.heads = 8  # 注意力头数
         self.intra_drop = 0.2  # GAT层内Dropout
         self.inter_drop = 0.2  # GNN层间Dropout
 
@@ -392,8 +391,8 @@ class ArchConfig:
         # inter_drop已在GAT中定义，这里共用
 
         # ==================== LSTM特定参数 ====================
-        self.lstm_num_layers = 1        # LSTM层数（默认1）
-        self.lstm_dropout = 0.2         # LSTM层间Dropout（仅num_layers > 1时生效）
+        self.lstm_num_layers = 1  # LSTM层数（默认1）
+        self.lstm_dropout = 0.2  # LSTM层间Dropout（仅num_layers > 1时生效）
         self.lstm_bidirectional = False  # 是否使用双向LSTM
 
         # ==================== 分离式编码器参数 (v2.0优化版) ====================
@@ -401,8 +400,8 @@ class ArchConfig:
 
         # 🔥 改进1: 交叉注意力融合参数
         # 废弃原fusion_type参数，现在统一使用CrossAttentionFusion
-        self.fusion_num_heads = 1           # 交叉注意力头数（必须能整除hid_dim）
-        self.fusion_use_pre_ln = True       # 是否使用Pre-LN（推荐True）
+        self.fusion_num_heads = 2  # 交叉注意力头数（必须能整除hid_dim）
+        self.fusion_use_pre_ln = False  # 是否使用Pre-LN（推荐True）
 
         # 🔥 改进3: GAT残差连接参数
         self.use_skip_connection = True  # 是否在GAT前后添加残差连接

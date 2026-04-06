@@ -19,6 +19,56 @@ from torch.utils.data import Dataset, DataLoader
 from torch_geometric.data import Data, Batch
 
 
+# ========== 湿球温度计算函数 ==========
+def calculate_wet_bulb(t, rh):
+    """
+    使用 Stull 公式计算湿球温度
+    t: 气温 (Celsius)
+    rh: 相对湿度 (%)
+    """
+    tw = (
+        t * np.arctan(0.151977 * (rh + 8.313659) ** 0.5)
+        + np.arctan(t + rh)
+        - np.arctan(rh - 1.676331)
+        + 0.00391838 * (rh**1.5) * np.arctan(0.023101 * rh)
+        - 4.686035
+    )
+    return tw
+
+
+# 湿球温度计算所需的特征索引
+WET_BULB_TEMP_INDEX = 5  # tave (日均温)
+WET_BULB_HUMIDITY_INDEX = 8  # rh (相对湿度)
+
+
+def compute_wet_bulb_target(MetData, config):
+    """
+    计算湿球温度目标特征并替换数据中的对应位置
+
+    Args:
+        MetData: 原始气象数据 [time, station, features]
+        config: 配置对象
+
+    Returns:
+        MetData: 处理后的数据，其中目标特征被替换为湿球温度
+        target_mean: 湿球温度的均值（用于反标准化）
+        target_std: 湿球温度的标准差（用于反标准化）
+    """
+    tave = MetData[:, :, WET_BULB_TEMP_INDEX]  # [time, station]
+    rh = MetData[:, :, WET_BULB_HUMIDITY_INDEX]  # [time, station]
+
+    # 计算湿球温度
+    wb = calculate_wet_bulb(tave, rh)
+
+    # 将湿球温度写入目标特征位置
+    # 注意：这里不修改原始数据，而是返回湿球温度用于标签
+    # 在后面的标准化中会用到 target_mean 和 target_std
+    target_mean = np.nanmean(wb)
+    target_std = np.nanstd(wb)
+
+    return wb, target_mean, target_std
+
+
 # 年份边界定义（2010-2019年数据）
 # 数据索引从0开始，每年的[start, end)
 YEAR_BOUNDARIES = {
@@ -571,6 +621,37 @@ def create_dataloaders(config, graph):
     print(f"✓ 加载数据: {config.MetData_fp}")
     print(f"  原始形状: {MetData.shape}")
 
+    # 🆕 处理湿球温度模式
+    is_wet_bulb_mode = config.target_feature_idx == "wb"
+    if is_wet_bulb_mode:
+        print("\n[湿球温度模式] 正在计算湿球温度...")
+        wb_target, wb_mean, wb_std = compute_wet_bulb_target(MetData, config)
+        print(f"  湿球温度 - mean: {wb_mean:.4f}, std: {wb_std:.4f}")
+        # 将湿球温度添加到数据中（使用一个新的特征位置，比如索引29）
+        # 由于原始数据只有29个特征(0-28)，我们扩展一个维度
+        if MetData.shape[2] == 29:
+            wb_data = wb_target[:, :, np.newaxis]  # [time, station, 1]
+            MetData = np.concatenate([MetData, wb_data], axis=2)
+            print(f"  扩展数据形状: {MetData.shape}")
+        # 修改 config 的目标索引为实际特征位置
+        config.target_feature_idx = 29
+        # 保存湿球温度的统计量到 config
+        config._wb_mean = wb_mean
+        config._wb_std = wb_std
+        config._wb_target = wb_target  # 保存原始湿球温度数据用于计算分位数
+        config._is_wet_bulb_mode = True
+
+        # 🆕 临时将索引29添加到动态特征中（仅用于特征分离模式）
+        # 在特征分离模式下需要特殊处理湿球温度
+        if hasattr(config, "use_feature_separation") and config.use_feature_separation:
+            # 保存原始动态特征索引
+            original_dynamic_indices = config.dynamic_feature_indices.copy()
+            # 添加湿球温度索引到动态特征末尾
+            config.dynamic_feature_indices = config.dynamic_feature_indices + [29]
+            # 保存原始动态特征索引以便后续恢复
+            config._original_dynamic_indices = original_dynamic_indices
+            print(f"  临时添加湿球温度(29)到动态特征: {config.dynamic_feature_indices}")
+
     # 2. 判断是否使用特征分离模式
     use_separation = getattr(config, "use_feature_separation", False)
 
@@ -692,6 +773,9 @@ def _create_dataloaders_separated(config, graph, MetData):
     """
     from myGNN.feature_encoder import StaticFeatureEncoder
 
+    # 🆕 获取湿球温度模式标记
+    is_wet_bulb_mode = getattr(config, "_is_wet_bulb_mode", False)
+
     print(f"\n✓ 启用特征分离模式（按年份提取静态特征）")
     print(
         f"  静态特征索引: {config.static_feature_indices} "
@@ -739,9 +823,24 @@ def _create_dataloaders_separated(config, graph, MetData):
 
     # 🆕 在标准化之前计算目标特征的90分位数（用于动态高温阈值）
     target_idx = config.target_feature_idx
-    target_feature_data = train_data[:, :, target_idx]  # 使用原始未标准化的数据
-    ta_p90 = float(np.percentile(target_feature_data, 90))
-    print(f"\n目标特征(索引{target_idx})90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)")
+    # 🆕 湿球温度模式：目标特征不在动态特征中，需要特殊处理
+    if is_wet_bulb_mode:
+        # 湿球温度：使用之前计算的 wb_target 计算 90 分位数
+        wb_target = getattr(config, "_wb_target", None)
+        if wb_target is not None:
+            wb_p90 = float(
+                np.nanpercentile(wb_target[config.train_start : config.train_end], 90)
+            )
+        else:
+            wb_p90 = wb_mean + 2 * wb_std  # 备用计算
+        ta_p90 = wb_p90
+        print(f"\n湿球温度90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)")
+    else:
+        target_feature_data = train_data[:, :, target_idx]  # 使用原始未标准化的数据
+        ta_p90 = float(np.percentile(target_feature_data, 90))
+        print(
+            f"\n目标特征(索引{target_idx})90分位数: {ta_p90:.4f}°C (可用于动态高温阈值)"
+        )
 
     # 构建站点-日内动态阈值表（必须在标准化之前，使用原始数据）
     if getattr(config.loss_config, "use_station_day_threshold", False):
@@ -798,8 +897,17 @@ def _create_dataloaders_separated(config, graph, MetData):
     )
 
     # 5. 计算目标特征统计量（用于损失反标准化）
+    # 🆕 获取湿球温度统计量
+    wb_mean = getattr(config, "_wb_mean", None)
+    wb_std = getattr(config, "_wb_std", None)
+
     # 注意：ta_p90 已在标准化之前计算（见上方第561-565行）
-    if target_idx in dynamic_indices:
+    # 🆕 湿球温度模式：索引29不在 static_indices 或 dynamic_indices 中
+    if target_idx == 29 and is_wet_bulb_mode:
+        # 湿球温度：使用之前计算的 wb_mean 和 wb_std
+        ta_mean = wb_mean
+        ta_std = wb_std
+    elif target_idx in dynamic_indices:
         target_in_dynamic = dynamic_indices.index(target_idx)
         ta_mean = float(dynamic_mean[target_in_dynamic])
         ta_std = float(dynamic_std[target_in_dynamic])
