@@ -251,7 +251,10 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion, config, devi
     # 计算平均损失（归一化空间）
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
 
-    # 转换为RMSE（°C）- 与标准训练流程保持一致
+    # 转换为近似 RMSE（°C）
+    # 注意：使用 WeightedTrendMSELoss 时 avg_loss 是加权 MSE，
+    # 此处 sqrt(avg_loss * ta_std²) 为加权损失的量纲换算，并非严格 RMSE。
+    # 真实 RMSE 请由验证阶段收集的 pred/label 数组经 get_metric() 计算。
     avg_loss_rmse = np.sqrt(avg_loss * (config.ta_std**2))
 
     # 更新学习率（非ReduceLROnPlateau调度器）
@@ -357,7 +360,10 @@ def validate_epoch(model, dataloader, criterion, config, device):
     # 计算平均损失（归一化空间）
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
 
-    # 转换为RMSE（°C）
+    # 转换为近似 RMSE（°C）
+    # 注意：使用 WeightedTrendMSELoss 时 avg_loss 是加权 MSE，
+    # 此处 sqrt(avg_loss * ta_std²) 为加权损失的量纲换算，并非严格 RMSE。
+    # 真实 RMSE 请由收集的 predict_epoch/label_epoch 数组经 get_metric() 计算。
     avg_loss_rmse = np.sqrt(avg_loss * (config.ta_std**2))
 
     # 拼接所有批次的结果

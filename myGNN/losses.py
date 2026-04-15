@@ -68,6 +68,11 @@ class WeightedTrendMSELoss(nn.Module):
         """
         计算高温关注权重。
         threshold 必须与 label_actual 形状相同（由 forward 保证）。
+
+        两种加权情况：
+          Case 1 真漏报(FN)：label >= T 且 pred < T → c_under 惩罚（最严重）
+          Case 2 误报(FP)：label < T 且 pred >= T → c_over 惩罚
+          其余情况（正常温度、高温命中、高温区间内低估）权重保持 1.0
         """
         # 断言形状匹配（_gather_dynamic_thresholds 已保证，标量阈值由 full_like 保证）
         assert threshold.shape == label_actual.shape, (
@@ -76,26 +81,17 @@ class WeightedTrendMSELoss(nn.Module):
 
         weights = torch.ones_like(label_actual)
 
-        # 1. 漏报高温 (实际 >= 阈值, 但预测值 < 实际值) -> ⚠️ 最严重的错误
-        under_mask = (label_actual >= threshold) & (pred_actual < label_actual)
+        # Case 1：真正漏报(FN) — 实际高温但预测低于阈值 -> 最严重的错误
+        under_mask = (label_actual >= threshold) & (pred_actual < threshold)
         if under_mask.any():
             diff = label_actual[under_mask] - threshold[under_mask]
             weights[under_mask] += self.c_under * (diff + self.delta)
 
-        # 2. 误报高温 (实际 < 阈值, 但预测值 >= 阈值) -> ⚠️ 次要错误
+        # Case 2：误报(FP) — 实际非高温但预测超阈值 -> 次要错误
         over_mask = (label_actual < threshold) & (pred_actual >= threshold)
         if over_mask.any():
             diff = pred_actual[over_mask] - threshold[over_mask]
             weights[over_mask] += self.c_over * (diff + self.delta)
-
-        # 3. 高温未低估 (实际 >= 阈值, 且 预测值 >= 实际值) -> ✅ 保持高关注
-        # 注意: 包含正确命中和过度高估两种情况
-        high_not_under_mask = (label_actual >= threshold) & (
-            pred_actual >= label_actual
-        )
-        if high_not_under_mask.any():
-            diff = label_actual[high_not_under_mask] - threshold[high_not_under_mask]
-            weights[high_not_under_mask] += 1 * (diff + self.delta)
 
         return weights
 
