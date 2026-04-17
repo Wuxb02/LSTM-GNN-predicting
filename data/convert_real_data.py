@@ -1,12 +1,12 @@
 """
 数据转换脚本: 将CSV格式的真实气象数据转换为模型支持的NPY格式
 
-输入: data/result/merged_data_YYYY_2000m.csv (2010-2019年, 10个文件)
+输入: data/result/merged_data_YYYY_2000m.csv (2010-2020年, 11个文件)
 输出:
-    - data/real_weather_data_2010_2019.npy: [时间步, 气象站数, 28]
+    - data/real_weather_data_2010_2020.npy: [时间步, 气象站数, 30]
     - data/station_info.npy: [气象站数, 4] (ID, 经度, 纬度, 高度)
 
-特征维度说明 (共29个特征):
+特征维度说明 (共30个特征):
     0-1: x, y (经纬度)
     2: height (海拔高度)
     3-5: tmin, tmax, tave (温度)
@@ -19,8 +19,9 @@
     20-21: surface_pressure, surface_solar_radiation (ERA5)
     22-23: u_component_of_wind_10m, v_component_of_wind_10m (风速分量)
     24: total_precipitation_sum (ERA5累计降水)
-    25-26: VegHeight_mean, VegHeight_std (植被高度特征)
-    27-28: doy, month (时间特征)
+    25: relative_humidity_2m (ERA5 2m相对湿度)
+    26-27: VegHeight_mean, VegHeight_std (植被高度特征)
+    28-29: doy, month (时间特征)
 
 作者: GNN气温预测项目
 日期: 2025
@@ -146,10 +147,11 @@ def convert_to_npy_format(df: pd.DataFrame, station_info: np.ndarray) -> np.ndar
         "u_component_of_wind_10m",  # 22: 10m高���U分量风速
         "v_component_of_wind_10m",  # 23: 10m高度V分量风速
         "total_precipitation_sum",  # 24: ERA5累计降水
-        "VegHeight_mean",  # 25: 植被高度均值
-        "VegHeight_std",  # 26: 植被高度标准差
+        "relative_humidity_2m",  # 25: ERA5 2m相对湿度
+        "VegHeight_mean",  # 26: 植被高度均值
+        "VegHeight_std",  # 27: 植被高度标准差
         "doy",
-        "month",  # 27-28: 时间特征
+        "month",  # 28-29: 时间特征
     ]
 
     # 获取唯一日期和气象站
@@ -273,7 +275,7 @@ def main():
     print("步骤 4/4: 保存文件")
     print("-" * 80)
 
-    output_data_path = output_dir / "real_weather_data_2010_2019.npy"
+    output_data_path = output_dir / "real_weather_data_2010_2020.npy"
     output_station_path = output_dir / "station_info.npy"
 
     np.save(output_data_path, data_array)
@@ -291,9 +293,9 @@ def main():
     print(f"\n输出文件:")
     print(f"  1. {output_data_path.name}")
     print(
-        f"     - 形状: [时间步={data_array.shape[0]}, 气象站={data_array.shape[1]}, 特征={data_array.shape[2]}] (含total_precipitation_sum)"
+        f"     - 形状: [时间步={data_array.shape[0]}, 气象站={data_array.shape[1]}, 特征={data_array.shape[2]}] (含relative_humidity_2m)"
     )
-    print(f"     - 时间范围: 2010-01-01 至 2019-12-31 ({data_array.shape[0]} 天)")
+    print(f"     - 时间范围: 2010-01-01 至 2020-12-31 ({data_array.shape[0]} 天)")
     print(f"  2. {output_station_path.name}")
     print(
         f"     - 形状: [气象站={station_info.shape[0]}, 信息={station_info.shape[1]}] (ID, 经度, 纬度, 高度)"

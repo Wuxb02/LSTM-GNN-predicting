@@ -69,7 +69,7 @@ def compute_wet_bulb_target(MetData, config):
     return wb, target_mean, target_std
 
 
-# 年份边界定义（2010-2019年数据）
+# 年份边界定义（2010-2020年数据）
 # 数据索引从0开始，每年的[start, end)
 YEAR_BOUNDARIES = {
     2010: (0, 365),  # 365天
@@ -82,6 +82,7 @@ YEAR_BOUNDARIES = {
     2017: (2557, 2922),  # 365天
     2018: (2922, 3287),  # 365天
     2019: (3287, 3652),  # 365天
+    2020: (3652, 4018),  # 366天（闰年）
 }
 
 
@@ -112,7 +113,7 @@ def _get_year_from_idx(time_idx):
     # 边界情况处理
     if time_idx < 0:
         return 2010
-    return 2019
+    return 2020
 
 
 def _get_years_in_range(start_idx, end_idx):
@@ -207,7 +208,7 @@ def build_station_day_threshold_map(met_data, config, percentile=90, window_radi
         start, end = YEAR_BOUNDARIES[year]
         time_to_year[start:end] = year
         for i in range(start, end):
-            raw_doy = int(met_data[i, 0, 27])
+            raw_doy = int(met_data[i, 0, 28])
             norm = normalize_doy_for_statistics(year, raw_doy)
             time_to_norm_doy[i] = norm if norm is not None else -1
 
@@ -320,7 +321,7 @@ class WeatherGraphDataset(Dataset):
         """
         for step in range(self.config.pred_len):
             future_idx = time_idx + step
-            raw_doy = int(self.MetData[future_idx, 0, 27])
+            raw_doy = int(self.MetData[future_idx, 0, 28])
             year = _get_year_from_idx(future_idx)
             if is_leap_year(year) and raw_doy == 60:
                 return True
@@ -346,8 +347,8 @@ class WeatherGraphDataset(Dataset):
             current_idx = time_idx - self.config.hist_len + t
 
             # 获取原始时间特征（所有气象站的时间特征相同，取第一个）
-            doy = self.MetData[current_idx, 0, 27]  # 年内日序数 (1-366)
-            month = self.MetData[current_idx, 0, 28]  # 月份 (1-12)
+            doy = self.MetData[current_idx, 0, 28]  # 年内日序数 (1-366)
+            month = self.MetData[current_idx, 0, 29]  # 月份 (1-12)
 
             # 年周期编码
             days_in_year = 366 if doy > 365 else 365
@@ -397,7 +398,7 @@ class WeatherGraphDataset(Dataset):
         future_doy = []
         for step in range(self.config.pred_len):
             future_idx = time_idx + step
-            raw_doy = int(self.MetData[future_idx, 0, 27])
+            raw_doy = int(self.MetData[future_idx, 0, 28])
             year = _get_year_from_idx(future_idx)
             future_doy.append(normalize_doy_for_loss(year, raw_doy))
 
@@ -428,9 +429,9 @@ class WeatherGraphDataset(Dataset):
             # 使用指定特征
             features = hist_window[:, :, self.config.feature_indices]
         else:
-            # 使用所有特征，但移除doy和month（索引27-28）
-            # 保留索引0-26
-            features = hist_window[:, :, :27]
+            # 使用所有特征，但移除doy和month（索引28-29）
+            # 保留索引0-27
+            features = hist_window[:, :, :28]
 
         # features shape: [hist_len, num_stations, base_features]
 
@@ -629,12 +630,12 @@ def create_dataloaders(config, graph):
         print(f"  湿球温度 - mean: {wb_mean:.4f}, std: {wb_std:.4f}")
         # 将湿球温度添加到数据中（使用一个新的特征位置，比如索引29）
         # 由于原始数据只有29个特征(0-28)，我们扩展一个维度
-        if MetData.shape[2] == 29:
+        if MetData.shape[2] == 30:
             wb_data = wb_target[:, :, np.newaxis]  # [time, station, 1]
             MetData = np.concatenate([MetData, wb_data], axis=2)
             print(f"  扩展数据形状: {MetData.shape}")
         # 修改 config 的目标索引为实际特征位置
-        config.target_feature_idx = 29
+        config.target_feature_idx = 30
         # 保存湿球温度的统计量到 config
         config._wb_mean = wb_mean
         config._wb_std = wb_std
@@ -647,10 +648,10 @@ def create_dataloaders(config, graph):
             # 保存原始动态特征索引
             original_dynamic_indices = config.dynamic_feature_indices.copy()
             # 添加湿球温度索引到动态特征末尾
-            config.dynamic_feature_indices = config.dynamic_feature_indices + [29]
+            config.dynamic_feature_indices = config.dynamic_feature_indices + [30]
             # 保存原始动态特征索引以便后续恢复
             config._original_dynamic_indices = original_dynamic_indices
-            print(f"  临时添加湿球温度(29)到动态特征: {config.dynamic_feature_indices}")
+            print(f"  临时添加湿球温度(30)到动态特征: {config.dynamic_feature_indices}")
 
     # 2. 判断是否使用特征分离模式
     use_separation = getattr(config, "use_feature_separation", False)
@@ -668,8 +669,8 @@ def _create_dataloaders_original(config, graph, MetData):
     # 2. 计算标准化统计量（仅使用训练集）
     train_data = MetData[config.train_start : config.train_end]
 
-    # 2.1 计算所有输入特征的统计量（0-26索引，移除时间特征27-28）
-    feature_data = train_data[:, :, :27]
+    # 2.1 计算所有输入特征的统计量（0-27索引，移除时间特征28-29）
+    feature_data = train_data[:, :, :28]
 
     feature_mean = feature_data.mean(axis=(0, 1))
     feature_std = feature_data.std(axis=(0, 1))
@@ -723,9 +724,9 @@ def _create_dataloaders_original(config, graph, MetData):
         sample_count_map = None
 
     # 3. 标准化
-    MetData[:, :, :27] = (MetData[:, :, :27] - feature_mean) / (feature_std + 1e-8)
+    MetData[:, :, :28] = (MetData[:, :, :28] - feature_mean) / (feature_std + 1e-8)
 
-    print(f"✓ 已标准化所有27个输入特征")
+    print(f"✓ 已标准化所有28个输入特征")
 
     stats = {
         "ta_mean": ta_mean,
@@ -903,7 +904,7 @@ def _create_dataloaders_separated(config, graph, MetData):
 
     # 注意：ta_p90 已在标准化之前计算（见上方第561-565行）
     # 🆕 湿球温度模式：索引29不在 static_indices 或 dynamic_indices 中
-    if target_idx == 29 and is_wet_bulb_mode:
+    if target_idx == 30 and is_wet_bulb_mode:
         # 湿球温度：使用之前计算的 wb_mean 和 wb_std
         ta_mean = wb_mean
         ta_std = wb_std

@@ -383,13 +383,13 @@ class ResultVisualizer:
                 )
 
                 raw_data = np.load(
-                    project_root / "data" / "real_weather_data_2010_2019.npy"
+                    project_root / "data" / "real_weather_data_2010_2020.npy"
                 )
                 threshold_line = np.zeros(len(time_idx), dtype=np.float32)
                 for i in range(len(time_idx)):
                     # test_time 是样本的起始时间索引，预测目标在 time_idx + pred_step
                     target_idx = int(time_idx[i]) + pred_step
-                    raw_doy = int(raw_data[target_idx, 0, 27])
+                    raw_doy = int(raw_data[target_idx, 0, 28])
                     year = _get_year_from_idx(target_idx)
                     doy_0based = normalize_doy_for_loss(year, raw_doy)
                     threshold_line[i] = self.threshold_map[doy_0based, station_id]
@@ -794,10 +794,10 @@ class ResultVisualizer:
                     metdata = np.load(metdata_path)  # [2922, 28, 28]
 
                     # 从test_time获取时间索引,提取对应月份
-                    # month特征在索引27
+                    # month特征在索引29
                     months = []
                     for time_idx in self.test_time:
-                        month = metdata[int(time_idx), 0, 27]  # 提取第一个站点的月份
+                        month = metdata[int(time_idx), 0, 29]  # 提取第一个站点的月份
                         months.append(month)
                     months = np.array(months)
 

@@ -222,7 +222,7 @@ def _build_threshold_array_from_time(threshold_map, time_indices, pred_len, conf
         time_idx = int(time_indices[i])
         for step in range(pred_len):
             future_idx = time_idx + step
-            raw_doy = int(met_data[future_idx, 0, 27])
+            raw_doy = int(met_data[future_idx, 0, 28])
             year = _get_year_from_idx(future_idx)
             try:
                 doy_0based = normalize_doy_for_loss(year, raw_doy)

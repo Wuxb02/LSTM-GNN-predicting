@@ -64,11 +64,11 @@ class LossConfig:
         # 🔥 加权趋势MSE损失参数（改进版 - 温度加权 + 趋势约束）
         # 四个核心机制: 精确阈值定义 + 不对称惩罚 + 极端值加权 + 趋势约束
         self.alert_temp = 35.0  # 高温警戒阈值T_alert (°C) - 固定值或动态更新
-        self.c_under = 4  # 漏报权重系数(低估高温的惩罚),应较大
-        self.c_over = 2  # 误报权重系数(高估的惩罚),可较小
+        self.c_under = 2 # 漏报权重系数(低估高温的惩罚),应较大
+        self.c_over = 1.5  # 误报权重系数(高估的惩罚),可较小
         self.c_default_high = 1.0  # 正确预报高温的权重
         self.delta = 0.1  # 小偏置,缓冲max(0,⋅)计算
-        self.trend_weight = 0  # 趋势权重
+        self.trend_weight = 0.05  # 趋势权重
 
         # 站点-日内动态阈值配置
         self.use_station_day_threshold = True  # True=启用365x28阈值表, False=使用旧模式
@@ -99,9 +99,9 @@ def get_feature_indices_for_graph(config):
            使用默认的0-26（移除doy和month）
 
     注意:
-        - 返回的索引用于从原始数据 [time, stations, 29] 中提取特征
+        - 返回的索引用于从原始数据 [time, stations, 30] 中提取特征
         - 不包括时间编码（doy_sin/cos, month_sin/cos），因为时间编码在数据加载时动态生成
-        - 索引27-28（doy, month）应被排除，因为它们会被转换为sin/cos
+        - 索引28-29（doy, month）应被排除，因为它们会被转换为sin/cos
     """
     if config.use_feature_separation:
         # 分离模式：合并静态和动态特征索引
@@ -123,9 +123,9 @@ def get_feature_indices_for_graph(config):
         return indices
 
     else:
-        # 默认：使用0-26（移除doy和month）
-        indices = list(range(27))
-        print(f"  [特征选择] 使用默认特征: 0-26 (27个)")
+        # 默认：使用0-27（移除doy和month）
+        indices = list(range(28))
+        print(f"  [特征选择] 使用默认特征: 0-27 (28个)")
         return indices
 
 
@@ -139,28 +139,28 @@ class Config:
     def __init__(self):
         # ==================== 数据配置 ====================
         project_root = Path(__file__).parent.parent
-        self.MetData_fp = str(project_root / "data" / "real_weather_data_2010_2019.npy")
+        self.MetData_fp = str(project_root / "data" / "real_weather_data_2010_2020.npy")
         self.station_info_fp = str(project_root / "data" / "station_info.npy")
 
         # 数据集划分（按年份）
         # 2010-2017年(训练): 索引0-2921 (共2922天)
-        # 2018年(验证): 索引2922-3286 (共365天)
-        # 2019年(测试): 索引3287-3651 (共365天)
+        # 2018-2019年(验证): 索引2922-3651 (共730天)
+        # 2020年(测试): 索引3652-4017 (共366天，闰年)
         self.train_start = 0
         self.train_end = 2922
         self.val_start = 2922
-        self.val_end = 3287
-        self.test_start = 3287
-        self.test_end = 3652
+        self.val_end = 3652
+        self.test_start = 3652
+        self.test_end = 4018
 
-        self.dataset_num = "real_data_2010_2019"
+        self.dataset_num = "real_data_2010_2020"
 
         # ==================== 时间窗口配置 ====================
         self.hist_len = 14  # 历史窗口长度（天）
         self.pred_len = 5  # 预测长度（天）
 
         # ==================== 特征配置 ====================
-        # 原始特征索引（0-28共29个）:
+        # 原始特征索引（0-29共30个）:
         # 0-1: x, y (经纬度)
         # 2: height (海拔高度)
         # 3-5: tmin, tmax, tave (温度)
@@ -173,12 +173,13 @@ class Config:
         # 20-21: surface_pressure, surface_solar_radiation (ERA5)
         # 22-23: u_component_of_wind_10m, v_component_of_wind_10m (风速分量)
         # 24: total_precipitation_sum (ERA5累计降水)
-        # 25-26: VegHeight_mean, VegHeight_std (植被高度特征)
-        # 27-28: doy, month (时间，将被转换为sin/cos)
+        # 25: relative_humidity_2m (ERA5 2m相对湿度)
+        # 26-27: VegHeight_mean, VegHeight_std (植被高度特征)
+        # 28-29: doy, month (时间，将被转换为sin/cos)
 
-        self.base_feature_dim = 29  # 原始特征维度（0-28）
+        self.base_feature_dim = 30  # 原始特征维度（0-29）
         # 预测目标：可以是数字索引（如 5 = tave, 8 = rh）或字符串 "wb"（湿球温度）
-        self.target_feature_idx =4  # 预测目标：索引5 = tave, "wb" = 湿球温度
+        self.target_feature_idx = 4  # 预测目标：索引5 = tave, "wb" = 湿球温度
 
         # 特征选择（None表示使用所有基础特征，即0-25，移除doy和month）
         # 可设置为列表选择部分特征
@@ -196,16 +197,15 @@ class Config:
         # 静态特征索引（逐年数据，不随时间变化）
         # 0-2: x, y, height (地理位置)
         # 10-18: BH, BHstd, SCD, PLA, λp, λb, POI, POW, POV (城市形态)
-        # 25-26: VegHeight_mean, VegHeight_std (植被高度)
-        self.static_feature_indices = [0, 1, 2, 10, 11, 12, 16, 17, 18, 25]
-        # self.static_feature_indices = [0, 1, 2, 10, 11, 12, 13, 14, 15, 16, 17, 18, 25, 26]
+        # 26-27: VegHeight_mean, VegHeight_std (植被高度)
+        self.static_feature_indices = [0, 1, 2, 10, 11, 12, 16, 17, 18, 26]
 
         # 动态特征索引（逐日数据，随时间变化）
         # 3-9: tmin, tmax, tave, pre, prs, rh, win (气象要素)
-        # 19-24: NDVI, surface_pressure, surface_solar_radiation, u_wind, v_wind,
-        #         total_precipitation_sum
-        # 注意：doy(27)和month(28)将单独转换为sin/cos编码
-        self.dynamic_feature_indices = [4, 8, 21, 22, 23, 24]
+        # 20-25: surface_pressure, surface_solar_radiation, u_wind, v_wind,
+        #         total_precipitation_sum, relative_humidity_2m
+        # 注意：doy(28)和month(29)将单独转换为sin/cos编码
+        self.dynamic_feature_indices = [3, 4, 5, 8, 21, 22, 23, 24, 25]
 
         # 配置验证
         if self.use_feature_separation:
@@ -218,10 +218,10 @@ class Config:
                     f"动态: {self.dynamic_feature_indices}"
                 )
 
-            # 检查是否包含时间特征（27-28应被排除）
-            if 27 in combined or 28 in combined:
+            # 检查是否包含时间特征（28-29应被排除）
+            if 28 in combined or 29 in combined:
                 raise ValueError(
-                    f"特征索引不应包含时间特征27(doy)和28(month)！\n"
+                    f"特征索引不应包含时间特征28(doy)和29(month)！\n"
                     f"当前静态: {self.static_feature_indices}\n"
                     f"当前动态: {self.dynamic_feature_indices}\n"
                     f"时间特征将自动转换为sin/cos编码"
@@ -266,7 +266,7 @@ class Config:
         self.graph_type = "inv_dis"  # 默认使用逆距离权重图
 
         # K近邻图参数（用于 'inv_dis' 和 'knn' 类型）
-        self.top_neighbors = 6
+        self.top_neighbors = 5
         self.use_edge_attr = False  # 是否使用边属性（逆距离权重）
 
         # 空间相似性图参数（用于 'spatial_similarity' 类型）
@@ -286,14 +286,14 @@ class Config:
         self.viz_use_basemap = True  # 是否使用地理底图（需要contextily库）
 
         # ==================== 训练配置 ====================
-        self.batch_size = 32  # 批次大小（从128改为32以平衡内存和收敛速度）
+        self.batch_size = 16  # 批次大小（从128改为32以平衡内存和收敛速度）
         self.epochs = 500
-        self.lr = 0.0002
-        self.weight_decay = 0.0002  # 从1e-4增大到1e-3以增强正则化
+        self.lr = 0.001
+        self.weight_decay = 1e-3  # 从1e-4增大到1e-3以增强正则化
         self.early_stop = 50  # 早停耐心值
 
         # 优化器配置
-        self.optimizer = "Adam"  # 'Adam', 'AdamW', 'SGD', 'RMSprop'
+        self.optimizer = "AdamW"  # 'Adam', 'AdamW', 'SGD', 'RMSprop'
         self.momentum = 0.9  # SGD动量参数
         self.betas = (0.9, 0.999)  # Adam/AdamW的beta参数
 
@@ -304,7 +304,7 @@ class Config:
         self.step_size = 10  # 每隔多少epoch衰减一次
         self.gamma = 0.9  # 学习率衰减系数
         # CosineAnnealingLR参数
-        self.T_max = 100  # 余弦退火周期
+        self.T_max = 50  # 余弦退火周期
         self.eta_min = self.lr * 0.1  # 最小学习率
         # ReduceLROnPlateau参数
         self.patience = 20  # 性能不提升的耐心值
@@ -343,8 +343,8 @@ class Config:
                 # 使用指定特征
                 base_dim = len(self.feature_indices)
             else:
-                # 使用所有特征（移除doy和month后剩余27个：0-26）
-                base_dim = 27
+                # 使用所有特征（移除doy和month后剩余28个：0-27）
+                base_dim = 28
 
             if self.add_temporal_encoding:
                 return base_dim + self.temporal_features
@@ -368,9 +368,9 @@ class ArchConfig:
 
     def __init__(self):
         # ==================== 通用架构参数 ====================
-        self.hid_dim = 32  # 隐藏层维度（从32增加到64以提升模型容量）
+        self.hid_dim = 16  # 隐藏层维度（从32增加到64以提升模型容量）
         self.MLP_layer = 1
-        self.AF = "LeakyReLU"  # 激活函数：'ReLU', 'LeakyReLU', 'PReLU','GELU'
+        self.AF = "ReLU"  # 激活函数：'ReLU', 'LeakyReLU', 'PReLU','GELU'
 
         # 规范化层类型: 'BatchNorm', 'LayerNorm', 'None'
         # BatchNorm: 适合大batch (>16)，训练/推理有差异
@@ -381,7 +381,7 @@ class ArchConfig:
 
         # ==================== GAT特定参数 ====================
         self.GAT_layer = 1  # GAT层数（从2增加到3以增强图学习能力）
-        self.heads = 8  # 注意力头数
+        self.heads = 1  # 注意力头数
         self.intra_drop = 0.2  # GAT层内Dropout
         self.inter_drop = 0.2  # GNN层间Dropout
 
@@ -400,10 +400,10 @@ class ArchConfig:
 
         # 🔥 改进1: 交叉注意力融合参数
         # 废弃原fusion_type参数，现在统一使用CrossAttentionFusion
-        self.fusion_num_heads = 2  # 交叉注意力头数（必须能整除hid_dim）
-        self.fusion_use_pre_ln = False  # 是否使用Pre-LN（推荐True）
+        self.fusion_num_heads = 1  # 交叉注意力头数（必须能整除hid_dim）
+        self.fusion_use_pre_ln = True  # 是否使用Pre-LN（推荐True）
 
-        # 🔥 改进3: GAT残差连接参数
+        # 🔥 改进2: GAT残差连接参数
         self.use_skip_connection = True  # 是否在GAT前后添加残差连接
 
 
@@ -492,7 +492,7 @@ def print_config(config, arch_config):
     if config.feature_indices:
         print(f"  选择特征: {config.feature_indices}")
     else:
-        print(f"  选择特征: 所有基础特征（0-26）")
+        print(f"  选择特征: 所有基础特征（0-27）")
     print(f"  时间编码: {'启用' if config.add_temporal_encoding else '禁用'}")
     if config.add_temporal_encoding:
         print(f"    - 年周期: doy_sin, doy_cos")
