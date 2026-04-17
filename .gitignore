@@ -25,6 +25,7 @@ CLAUDE.md
 
 # 模型检查点和训练输出
 myGNN/checkpoints/*
+myGNN/checkpoints*/*
 *.pth
 *.pt
 *.ckpt

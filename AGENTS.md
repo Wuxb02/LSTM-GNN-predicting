@@ -1,6 +1,6 @@
 # AGENTS.md
 
-GNN气温预测系统 — 华南28站日最高气温预测（2010–2019），PyTorch + PyG。
+GNN气温预测系统 — 华南28站日最高气温预测（2010–2020），PyTorch + PyG。
 
 ## 执行命令
 
@@ -36,11 +36,11 @@ D:\anaconda\Scripts\activate.bat && conda activate gnn_predict && C:\Users\wxb55
 
 - `config.exp_model = "GAT_SeparateEncoder"` — 推荐模型
 - `config.use_feature_separation = True` — **默认启用**特征分离模式
-- `config.target_feature_idx = 5` — 预测目标是 **tave**（日均温），不是 tmax
+- `config.target_feature_idx = 4` — 预测目标是 **tmax**（日最高气温）
 - `config.hist_len = 14`, `config.pred_len = 5`
 - `config.graph_type = "inv_dis"`, `config.top_neighbors = 5`
-- `config.static_feature_indices = [0,1,2,10,11,12,16,17,18,25]` — 10个静态特征
-- `config.dynamic_feature_indices = [5,8,21,22,23,24]` — 6个动态特征
+- `config.static_feature_indices = [0,1,2,10,11,12,16,17,18,26]` — 10个静态特征
+- `config.dynamic_feature_indices = [3,4,5,21,22,23,24,25]` — 8个动态特征
 - `config.loss_config.loss_type = "WeightedTrend"`
 - `config.loss_config.use_station_day_threshold = True` — 站点-日内动态阈值（365×28表）
 - `config.epochs = 5` — 当前设得很低，可能是调试值
@@ -48,25 +48,25 @@ D:\anaconda\Scripts\activate.bat && conda activate gnn_predict && C:\Users\wxb55
 
 ## 数据
 
-- **主数据**: `data/real_weather_data_2010_2019.npy` — shape `[3652, 28, 29]`（config 指向此文件）
+- **主数据**: `data/real_weather_data_2010_2020.npy` — shape `[4018, 28, 30]`（config 指向此文件）
 - **旧数据**: `data/real_weather_data_2010_2017.npy` — shape `[2922, 28, 29]`（仍存在但 config 不再使用）
 - **站点信息**: `data/station_info.npy` — shape `[28, 4]`
 
 ### 数据集划分（当前 config）
 
-| 集合 | 年份 | 索引 | 天数 |
-|------|------|------|------|
-| 训练 | 2010–2017 | 0–2921 | 2922 |
-| 验证 | 2018 | 2922–3286 | 365 |
-| 测试 | 2019 | 3287–3651 | 365 |
+| 集合 | 年份      | 索引      | 天数 |
+|------|-----------|-----------|------|
+| 训练 | 2010–2017 | 0–2921    | 2922 |
+| 验证 | 2018–2019 | 2922–3651 |  730 |
+| 测试 | 2020      | 3652–4017 |  366 |
 
 ### 特征维度变化
 
 ```
-原始 NPY: [time, stations, 29]
-  → 移除 doy(27), month(28)
-  → 特征分离模式: 静态10 + 动态6 + 时间编码4 = 20 维输入
-  → 模型输入: [nodes, hist_len, 20]
+原始 NPY: [time, stations, 30]
+  → 移除 doy(28), month(29)
+  → 特征分离模式: 静态10 + 动态8 + 时间编码4 = 22 维输入
+  → 模型输入: [nodes, hist_len, 22]
 ```
 
 ## 模型列表
