@@ -38,7 +38,6 @@ class ComparisonConfig:
     pred_step: int = 0  # 预测步长索引（0-4对应第1-5天）
 
     # 绘图配置
-    threshold: float = 35.0  # 高温阈值
     output_path: str = 'figdraw/result/validation_scatter_comparison.png'
     dpi: int = 300
     figsize: Tuple[int, int] = (8, 8)
@@ -46,15 +45,17 @@ class ComparisonConfig:
 
 def load_validation_data(checkpoint_dir: str) -> Dict:
     """
-    加载验证集数据
+    加载验证集数据及动态阈值表
 
     Args:
         checkpoint_dir: checkpoint目录路径
 
     Returns:
         dict: {
-            'predictions': np.ndarray [347, 28, 5],
-            'labels': np.ndarray [347, 28, 5]
+            'predictions': np.ndarray [N, 28, 5],
+            'labels':      np.ndarray [N, 28, 5],
+            'threshold_map': np.ndarray [365, 28],
+            'val_time':    np.ndarray [N]  全局时间索引
         }
 
     Raises:
@@ -63,89 +64,103 @@ def load_validation_data(checkpoint_dir: str) -> Dict:
     """
     ckpt_path = Path(checkpoint_dir)
 
-    # 检查目录存在性
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint目录不存在: {checkpoint_dir}")
 
-    # 检查文件存在性
-    pred_file = ckpt_path / 'val_predict.npy'
-    label_file = ckpt_path / 'val_label.npy'
+    for fname in ('val_predict.npy', 'val_label.npy',
+                  'threshold_map.npy', 'val_time.npy'):
+        if not (ckpt_path / fname).exists():
+            raise FileNotFoundError(f"缺失文件: {ckpt_path / fname}")
 
-    if not pred_file.exists():
-        raise FileNotFoundError(f"缺失文件: {pred_file}")
-    if not label_file.exists():
-        raise FileNotFoundError(f"缺失文件: {label_file}")
+    predictions = np.load(ckpt_path / 'val_predict.npy')
+    labels = np.load(ckpt_path / 'val_label.npy')
+    threshold_map = np.load(ckpt_path / 'threshold_map.npy')  # [365, 28]
+    val_time = np.load(ckpt_path / 'val_time.npy')            # [N]
 
-    # 加载数据
-    predictions = np.load(pred_file)
-    labels = np.load(label_file)
-
-    # 验证形状
     assert predictions.shape == labels.shape, \
         f"预测和标签形状不匹配: {predictions.shape} vs {labels.shape}"
-    assert predictions.shape == (347, 28, 5), \
-        f"数据形状异常: {predictions.shape}，期望 (347, 28, 5)"
+    assert predictions.ndim == 3 and predictions.shape[1] == 28 \
+        and predictions.shape[2] == 5, \
+        f"数据形状异常: {predictions.shape}，期望 (N, 28, 5)"
 
     return {
         'predictions': predictions,
-        'labels': labels
+        'labels': labels,
+        'threshold_map': threshold_map,
+        'val_time': val_time,
     }
+
+
+# 2018年验证集在全局数据集中的起始索引（2010–2017共2922天）
+_VAL_YEAR_START = 2922
 
 
 def flatten_predictions(
     data: Dict,
     pred_step: int = 0
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    将3D数据转换为1D数组
+    将3D数据转换为1D数组，并生成每样本对应的站点分位数阈值
 
     Args:
         data: load_validation_data()返回的数据字典
         pred_step: 预测步长索引（0-4）
 
     Returns:
-        predictions_1d: [9716] (347×28)
-        labels_1d: [9716]
+        predictions_1d: [N*28]
+        labels_1d: [N*28]
+        thresholds_1d: [N*28] 从checkpoint动态阈值表查得的逐样本阈值
 
     Raises:
         ValueError: pred_step超出范围
     """
-    predictions = data['predictions']  # [347, 28, 5]
-    labels = data['labels']
+    predictions = data['predictions']    # [N, 28, 5]
+    labels = data['labels']              # [N, 28, 5]
+    threshold_map = data['threshold_map']  # [365, 28]
+    val_time = data['val_time']          # [N]
 
-    # 验证pred_step
     if pred_step < 0 or pred_step >= 5:
         raise ValueError(f"pred_step={pred_step} 超出范围 [0, 4]")
 
+    # 每个样本的预测目标日期对应的0-based doy
+    # future_global_idx = val_time[i] + pred_step
+    # doy_0based = future_global_idx - _VAL_YEAR_START
+    doy_indices = np.clip(
+        val_time + pred_step - _VAL_YEAR_START, 0, 364
+    ).astype(int)  # [N]
+
+    # 查表得到 [N, 28] 的逐样本阈值
+    thresholds_2d = threshold_map[doy_indices, :]  # [N, 28]
+
     # 提取指定步长的数据
-    pred_step_data = predictions[:, :, pred_step]  # [347, 28]
-    label_step_data = labels[:, :, pred_step]
+    pred_step_data = predictions[:, :, pred_step]  # [N, 28]
+    label_step_data = labels[:, :, pred_step]      # [N, 28]
 
-    # 展平为1D数组
-    pred_1d = pred_step_data.flatten()  # [9716]
+    # 行优先展平为1D：时间步在外层，站点在内层
+    pred_1d = pred_step_data.flatten()
     label_1d = label_step_data.flatten()
+    thresholds_1d = thresholds_2d.flatten()        # [N*28]
 
-    return pred_1d, label_1d
+    return pred_1d, label_1d, thresholds_1d
 
 
 def plot_scatter_comparison(
     y_true: np.ndarray,
     y_pred_model1: np.ndarray,
     y_pred_model2: np.ndarray,
+    thresholds_1d: np.ndarray,
     config: ComparisonConfig
 ) -> None:
     """
-    绘制散点图对比（完全复用test.py代码）
+    绘制散点图对比
 
     Args:
         y_true: 真实值 [N]
         y_pred_model1: 模型1预测值 [N]
         y_pred_model2: 模型2预测值 [N]
+        thresholds_1d: 每样本对应站点的90分位阈值 [N]
         config: 配置对象
     """
-    THRESHOLD = config.threshold
-
-    # ========== 以下代码直接复制自test.py第30-95行 ==========
     fig, ax_main = plt.subplots(figsize=config.figsize, dpi=config.dpi)
 
     color_base = "#3681b6"
@@ -169,15 +184,12 @@ def plot_scatter_comparison(
     plot_max = data_max + padding
 
     # 3. 绘制对角线
-    ax_main.plot([plot_min, plot_max], [plot_min, plot_max], 
-                color='gray', linestyle='--', lw=2)
+    ax_main.plot([plot_min, plot_max], [plot_min, plot_max],
+                 color='gray', linestyle='--', lw=2)
 
-    # 4. 同时更新坐标轴范围以匹配 (这步很重要，否则可能线画了但图没显示全)
+    # 4. 坐标轴范围
     ax_main.set_xlim(plot_min, plot_max)
     ax_main.set_ylim(plot_min, plot_max)
-    ax_main.axvline(x=THRESHOLD, color='gray', linestyle='--', lw=2)
-    ax_main.axhline(y=THRESHOLD, color='gray', linestyle='--', lw=2)
-    ax_main.fill_between([THRESHOLD, 43], THRESHOLD, 43, color='orange',alpha=0.05)
 
     # 设置坐标轴 (显式关闭格网)
     ax_main.grid(False)
@@ -185,8 +197,8 @@ def plot_scatter_comparison(
     ax_main.set_ylabel('Predicted Temperature (°C)')
     ax_main.legend(loc='upper left', frameon=True, framealpha=0.9)
 
-    # --- 插图：高温残差分布 ---
-    mask_high = y_true >= THRESHOLD
+    # --- 插图：高温残差分布（基于各站点90分位阈值）---
+    mask_high = y_true >= thresholds_1d
     residuals_model1 = y_true[mask_high] - y_pred_model1[mask_high]
     residuals_model2 = y_true[mask_high] - y_pred_model2[mask_high]
 
@@ -203,74 +215,31 @@ def plot_scatter_comparison(
     ax_inset.axvline(0, color='k', linestyle='-', linewidth=1)
 
     # 插图样式设置
-    ax_inset.grid(False)  # 插图也关闭格网
-    # ax_inset.spines['top'].set_visible(False)
-    # ax_inset.spines['right'].set_visible(False)
+    ax_inset.grid(False)
     ax_inset.set_xlabel('Residual')
     ax_inset.set_ylabel('Density')
     ax_inset.set_xlim(-3, 5)
     ax_inset.tick_params(axis='both', which='major')
 
-    # ========== 复制结束 ==========
-
-    # ========== 新增：高温区域拟合直线和R²值 ==========
-    # 在高温区域（>threshold）绘制拟合直线
+    # ========== 高温区域拟合直线 ==========
     if mask_high.sum() > 0:
-        # 提取高温区域数据
         y_true_high = y_true[mask_high]
         y_pred1_high = y_pred_model1[mask_high]
         y_pred2_high = y_pred_model2[mask_high]
 
-        # 对模型1进行线性拟合
-        # y_pred = a * y_true + b
         coeffs1 = np.polyfit(y_true_high, y_pred1_high, 1)
         poly1 = np.poly1d(coeffs1)
 
-        # 对模型2进行线性拟合
         coeffs2 = np.polyfit(y_true_high, y_pred2_high, 1)
         poly2 = np.poly1d(coeffs2)
 
-        # 计算R²值
-        def calculate_r2(y_true, y_pred):
-            ss_res = np.sum((y_true - y_pred) ** 2)
-            ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
-            return 1 - (ss_res / ss_tot)
-
-        r2_model1 = calculate_r2(y_true_high, y_pred1_high)
-        r2_model2 = calculate_r2(y_true_high, y_pred2_high)
-
-        # 绘制拟合直线（仅在高温区域）
-        x_fit = np.linspace(THRESHOLD, 43, 100)
-        y_fit1 = poly1(x_fit)
-        y_fit2 = poly2(x_fit)
-
-        # 绘制模型1的拟合线
-        ax_main.plot(x_fit, y_fit1, color='darkblue', linestyle='-',
-                     linewidth=2.5, alpha=0.8,)
-                    #  label=f'{config.model1_name} Fit (R²={r2_model1:.3f})')
-
-        # 绘制模型2的拟合线
-        ax_main.plot(x_fit, y_fit2, color='darkred', linestyle='-',
-                     linewidth=2.5, alpha=0.8,)
-                    #  label=f'{config.model2_name} Fit (R²={r2_model2:.3f})')
-
-        # 更新图例（重新设置以包含拟合线）
-        # 1. 生成图例（获取图例对象）
         leg = ax_main.legend(loc='upper left', frameon=True)
-
-        # 2. 遍历图例中的每一个句柄，强制设置为不透明
         for handle in leg.legend_handles:
-            # 强制设置不透明度为 1.0 (完全不透明)
             handle.set_alpha(1.0)
-            
-            # 可选：如果是散点（通过检查是否有 set_sizes 方法），可以把图例里的点放大一点，看得更清
             if hasattr(handle, 'set_sizes'):
-                handle.set_sizes([60])  # 设置图例中散点的大小
-            
-            # 可选：如果是线（拟合线），确保线宽一致
+                handle.set_sizes([60])
             if hasattr(handle, 'set_linewidth'):
                 handle.set_linewidth(3)
-    # ========== 新增结束 ==========
 
     plt.tight_layout()
 
@@ -291,18 +260,17 @@ def main():
     # ============ 配置区域 ============
     config = ComparisonConfig(
         # 模型路径
-        model1_dir=str(script_dir / 'myGNN' / 'checkpoints' /
+        model1_dir=str(script_dir / 'myGNN' / 'checkpoints mean' /
                        'GAT_SeparateEncoder_MSE'),
-        model2_dir=str(script_dir / 'myGNN' / 'checkpoints' /
+        model2_dir=str(script_dir / 'myGNN' / 'checkpoints mean' /
                        'GAT_SeparateEncoder_WEIGHTED'),
         model1_name='MSE Loss',
-        model2_name='WeightedTrend Loss',
+        model2_name='Weighted Loss',
 
         # 数据转换配置
         pred_step=0,  # 第1步预测（0-4对应第1-5天）
 
         # 绘图配置
-        threshold=35.0,
         output_path=str(script_dir / 'figdraw' / 'result' /
                         'validation_scatter_comparison.png'),
         dpi=300,
@@ -328,21 +296,25 @@ def main():
         # Step 2: 转换数据
         print(f"\n[2/4] 转换数据...")
         print(f"  - 预测步长: 第{config.pred_step + 1}天")
-        pred1_1d, labels_1d = flatten_predictions(data1, config.pred_step)
-        pred2_1d, _ = flatten_predictions(data2, config.pred_step)
+        pred1_1d, labels_1d, thresholds_1d = flatten_predictions(
+            data1, config.pred_step)
+        pred2_1d, _, _ = flatten_predictions(data2, config.pred_step)
         print(f"    [OK] 转换后形状: {pred1_1d.shape}")
+        print(f"    [OK] 阈值范围: [{thresholds_1d.min():.2f}, "
+              f"{thresholds_1d.max():.2f}] °C")
 
         # Step 3: 绘制对比图
         print(f"\n[3/4] 绘制散点图...")
-        plot_scatter_comparison(labels_1d, pred1_1d, pred2_1d, config)
+        plot_scatter_comparison(labels_1d, pred1_1d, pred2_1d,
+                                thresholds_1d, config)
 
         # Step 4: 输出统计信息
+        mask_high = labels_1d >= thresholds_1d
         print(f"\n[4/4] 统计信息:")
         print(f"  - 样本数量: {len(labels_1d)}")
         print(f"  - 温度范围: [{labels_1d.min():.2f}, "
               f"{labels_1d.max():.2f}] °C")
-        print(f"  - 高温样本 (>{config.threshold}°C): "
-              f"{(labels_1d > config.threshold).sum()}")
+        print(f"  - 高温样本 (>=各站点90分位阈值): {mask_high.sum()}")
 
         rmse1 = np.sqrt(np.mean((pred1_1d - labels_1d)**2))
         rmse2 = np.sqrt(np.mean((pred2_1d - labels_1d)**2))
@@ -351,7 +323,6 @@ def main():
         print(f"  - RMSE改进: {((rmse1 - rmse2) / rmse1 * 100):+.2f}%")
 
         # 高温样本RMSE
-        mask_high = labels_1d >= config.threshold
         if mask_high.sum() > 0:
             rmse1_high = np.sqrt(
                 np.mean((pred1_1d[mask_high] - labels_1d[mask_high])**2))

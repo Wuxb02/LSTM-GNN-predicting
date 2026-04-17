@@ -8,12 +8,12 @@ from pathlib import Path
 # ============ 配置区域 ============
 # Checkpoint目录路径
 script_dir = Path(__file__).parent.parent
-CHECKPOINT_DIR = str(script_dir / 'myGNN' / 'checkpoints' / 'LSTM_20251222_144549')
+CHECKPOINT_DIR = str(script_dir / 'myGNN' / 'checkpoints mean' / 'GAT_SeparateEncoder_WEIGHTED')
 PRED_STEP = 0  # 预测步长索引（0-4对应第1-5天）
 FILL_MISSING = True  # 是否填充缺失日期（True=填充NaN以显示完整年份）
-SELECTED_STATIONS = [24,25]  # 指定站点列表，如[0, 5, 10, 15]；None表示全部28个站点
+SELECTED_STATIONS = None  # 指定站点列表，如[0, 5, 10, 15]；None表示全部28个站点
 # ==================================
-
+fontsize = 14
 # ---------------------------------------------------------
 # 1. 数据加载与处理
 # ---------------------------------------------------------
@@ -138,18 +138,18 @@ def plot_daily_heatmap_styled(heatmap_data, daily_mean, monthly_mean, data_stats
     gs = gridspec.GridSpec(2, 3, width_ratios=[1, 0.1, 0.03], height_ratios=[0.2, 1],
                            wspace=0.05, hspace=0.05)
 
-    # 添加图表标题
-    if data_stats is not None:
-        fig.suptitle(data_stats.get('title', 'Daily RMSE Heatmap'),
-                     fontsize=14, fontweight='bold', y=0.98)
+    # # 添加图表标题
+    # if data_stats is not None:
+    #     fig.suptitle(data_stats.get('title', 'Daily RMSE Heatmap'),
+    #                  fontsize=14, fontweight='bold', y=0.98)
 
     # --- A. 上方折线图 ---
     ax_top = plt.subplot(gs[0, 0])
     ax_top.plot(daily_mean.index, daily_mean.values, marker='o', markersize=3, color='#2b8cbe')
     ax_top.set_xlim(0.5, 31.5)
-    ax_top.set_ylabel('RMSE', fontsize=9)
+    ax_top.set_ylabel('RMSE (°C)', fontsize=fontsize)
     ax_top.set_xticks([])
-
+    ax_top.tick_params(labelsize=fontsize)
     # 手动添加内部虚线网格
     ax_top.grid(True, linestyle='--', alpha=0.7, color='#cccccc')
 
@@ -162,11 +162,11 @@ def plot_daily_heatmap_styled(heatmap_data, daily_mean, monthly_mean, data_stats
     sns.heatmap(heatmap_data, ax=ax_main, cmap='coolwarm', cbar=False,
                 vmin=vmin, vmax=vmax, linewidths=0)
 
-    ax_main.set_xlabel('Day of Month', fontsize=11)
-    ax_main.set_ylabel('Month', fontsize=11)
+    ax_main.set_xlabel('Day of Month', fontsize=fontsize)
+    ax_main.set_ylabel('Month', fontsize=fontsize)
     ax_main.tick_params(axis='y', rotation=0)
     ax_main.tick_params(axis='x', rotation=0)
-
+    ax_main.tick_params(labelsize=fontsize)
     # 修改4: 显式关闭热力图区域的网格（双重保险）
     ax_main.grid(False)
     # 为热力图也添加一个完整的黑色边框，使整体看起来更整洁
@@ -177,12 +177,17 @@ def plot_daily_heatmap_styled(heatmap_data, daily_mean, monthly_mean, data_stats
     y_pos = np.arange(len(monthly_mean)) + 0.5
     ax_right.plot(monthly_mean.values, y_pos, marker='o', markersize=4, color='#2b8cbe')
     ax_right.set_ylim(len(monthly_mean), 0)
-    ax_right.set_xlabel('RMSE', fontsize=9)
+    ax_right.set_xlabel('RMSE (°C)', fontsize=fontsize)
     ax_right.set_yticks([])
     ax_right.xaxis.tick_bottom()
-
+    ax_right.tick_params(labelsize=fontsize)
     # 手动添加内部虚线网格 (仅X轴方向)
     ax_right.grid(True, linestyle='--', axis='x', alpha=0.7, color='#cccccc')
+
+    # 手动指定两个刻度值（例如 1.5 和 3.5）
+    tick_values = [1.5, 2.5]  # 替换为你想要的数值
+    ax_right.set_xticks(tick_values)
+    ax_right.set_xticklabels([f'{tick_values[0]:.1f}', f'{tick_values[1]:.1f}'], fontsize=fontsize)
 
     # 修改5: 设置完整边框，移除了原来的 sns.despine()
     set_full_border(ax_right)
@@ -190,7 +195,12 @@ def plot_daily_heatmap_styled(heatmap_data, daily_mean, monthly_mean, data_stats
     # --- D. 颜色条 ---
     ax_cbar = plt.subplot(gs[1, 2])
     mappable = ax_main.collections[0]
-    plt.colorbar(mappable, cax=ax_cbar, label='RMSE (°C)')
+    cbar = plt.colorbar(mappable, cax=ax_cbar, label='RMSE (°C)')
+
+    # 设置字体大小
+    cbar.set_label('RMSE (°C)', fontsize=fontsize)  # 标签字体大小
+    cbar.ax.tick_params(labelsize=fontsize)         # 刻度标签字体大小
+
     # 为了风格统一，也给颜色条加上边框
     set_full_border(ax_cbar)
 
@@ -202,7 +212,7 @@ def plot_daily_heatmap_styled(heatmap_data, daily_mean, monthly_mean, data_stats
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"\n[OK] 图表已保存至: {output_path}")
 
-    plt.show()
+    # plt.show()
 
 
 # 准备数据统计信息
