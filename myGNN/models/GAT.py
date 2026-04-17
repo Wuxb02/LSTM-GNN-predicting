@@ -69,7 +69,7 @@ class GAT_LSTM(torch.nn.Module):
             self.element += 1
 
         # MLP输入层
-        for n in range(self.nMLP_layer):
+        for _ in range(self.nMLP_layer):
             MLP_layers_in.append(nn.Linear(self.hid_dim, self.hid_dim))
             MLP_layers_in.append(AF)
 
@@ -113,7 +113,7 @@ class GAT_LSTM(torch.nn.Module):
         self.GAT_layers = nn.ModuleList(GAT_layers)
 
         # MLP输出层（原有方式）
-        for n in range(self.nMLP_layer):
+        for _ in range(self.nMLP_layer):
             MLP_layers_out.append(nn.Linear(self.hid_dim, self.hid_dim))
             MLP_layers_out.append(AF)
         MLP_layers_out.append(nn.Linear(self.hid_dim, self.out_dim))
@@ -184,4 +184,4 @@ def whichAF(AF):
     elif AF == "ReLU":
         return nn.ReLU()
     else:
-        return lambda x: x
+        return nn.Identity()
