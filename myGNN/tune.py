@@ -14,7 +14,7 @@ GAT_SeparateEncoder 超参数自动调优入口
     python tune.py --mode comprehensive --n_trials 100
 
     # 恢复之前的 study 继续优化
-    python tune.py --mode default --n_trials 50 --resume
+    python tune.py --mode comprehensive --n_trials 100 --resume
 
     # 多进程并行
     python tune.py --mode default --n_trials 50 --n_jobs 4

@@ -214,6 +214,9 @@ class TrialRunner:
                     criterion,
                     config,
                     config.device,
+                    arch_config,
+                    epoch=epoch,
+                    total_epochs=config.epochs,
                 )
             else:
                 train_loss = train(
@@ -222,6 +225,9 @@ class TrialRunner:
                     optimizer,
                     scheduler,
                     config,
+                    arch_config,
+                    epoch=epoch,
+                    total_epochs=config.epochs,
                 )
             train_losses.append(train_loss)
 
