@@ -27,6 +27,8 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import SAGEConv
 
+from myGNN.models.ar_decoder import ARDecoder
+
 def get_norm_layer(norm_type, dim):
     """规范化层选择"""
     if norm_type == 'BatchNorm':
@@ -401,16 +403,30 @@ class GSAGE_SeparateEncoder(nn.Module):
         self.use_skip_connection = getattr(arch_arg, 'use_skip_connection', True)
 
         # ==================== 解码器 ====================
-        # MLP输出层
-        MLP_layers_out = []
-        for n in range(arch_arg.MLP_layer):
-            MLP_layers_out.append(nn.Linear(self.hid_dim, self.hid_dim))
-            MLP_layers_out.append(AF)
-        MLP_layers_out.append(nn.Linear(self.hid_dim, self.out_dim))
-        self.MLP_layers_out = nn.Sequential(*MLP_layers_out)
+        self.use_ar_decoder = getattr(arch_arg, 'use_ar_decoder', False)
 
+        if self.use_ar_decoder:
+            self.ar_decoder = ARDecoder(
+                hid_dim=self.hid_dim,
+                pred_len=self.out_dim,
+                cell_type=getattr(arch_arg, 'ar_cell_type', 'GRU'),
+                teacher_forcing_ratio=getattr(
+                    arch_arg, 'ar_teacher_forcing_ratio', 0.5),
+                tf_decay=getattr(arch_arg, 'ar_tf_decay', 'none'),
+                tf_start=getattr(arch_arg, 'ar_tf_start', 1.0),
+                tf_end=getattr(arch_arg, 'ar_tf_end', 0.0)
+            )
+        else:
+            # MLP输出层（向后兼容）
+            MLP_layers_out = []
+            for n in range(arch_arg.MLP_layer):
+                MLP_layers_out.append(nn.Linear(self.hid_dim, self.hid_dim))
+                MLP_layers_out.append(AF)
+            MLP_layers_out.append(nn.Linear(self.hid_dim, self.out_dim))
+            self.MLP_layers_out = nn.Sequential(*MLP_layers_out)
 
-    def forward(self, x, edge_index, edge_attr=None, return_cross_attention=False):
+    def forward(self, x, edge_index, edge_attr=None,
+                return_cross_attention=False, ta_label=None):
         """
         前向传播
 
@@ -467,7 +483,10 @@ class GSAGE_SeparateEncoder(nn.Module):
             x = x + fusion_out
 
         # ==================== 6. 解码器 ====================
-        x = self.MLP_layers_out(x)
+        if self.use_ar_decoder:
+            x = self.ar_decoder(x, ta_label)
+        else:
+            x = self.MLP_layers_out(x)
 
         # 返回结果
         if return_cross_attention:
