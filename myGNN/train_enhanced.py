@@ -144,7 +144,9 @@ def compute_loss(criterion, pred, label, doy_indices=None, config=None):
         return criterion(pred, label)
 
 
-def train_epoch(model, dataloader, optimizer, scheduler, criterion, config, device):
+def train_epoch(model, dataloader, optimizer, scheduler, criterion,
+                config, device, arch_arg=None,
+                epoch=None, total_epochs=None):
     """
     训练一个epoch（支持增强损失函数）
 
@@ -156,6 +158,9 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion, config, devi
         criterion (nn.Module): 损失函数
         config: 配置对象
         device (torch.device): 设备
+        arch_arg: 架构参数（可选，用于自回归解码器）
+        epoch: 当前epoch（可选，用于TF衰减）
+        total_epochs: 总epoch数（可选，用于TF衰减）
 
     返回:
         float: 平均RMSE损失值（°C）- 已反标准化
@@ -168,13 +173,24 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion, config, devi
 
     示例:
         >>> avg_loss = train_epoch(
-        ...     model, train_loader, optimizer, scheduler, criterion, config, device
+        ...     model, train_loader, optimizer, scheduler, criterion,
+        ...     config, device
         ... )
         >>> print(f"Epoch RMSE: {avg_loss:.4f} °C")
     """
     model.train()
     total_loss = 0
     num_batches = 0
+
+    use_ar = (
+        arch_arg is not None
+        and getattr(arch_arg, 'use_ar_decoder', False)
+        and hasattr(model, 'ar_decoder')
+    )
+
+    if use_ar and epoch is not None and total_epochs is not None:
+        model.ar_decoder.update_teacher_forcing_ratio(
+            epoch, total_epochs)
 
     for batch_data in dataloader:
         # 防御性检查：collate_fn 返回 None 时跳过
@@ -203,19 +219,32 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion, config, devi
             graph_data = graph_data[0]
 
         # 前向传播 - 根据是否使用边属性调用模型
+        use_ar = (
+            arch_arg is not None
+            and getattr(arch_arg, 'use_ar_decoder', False)
+            and hasattr(model, 'ar_decoder')
+        )
+
         if not config.use_edge_attr:
             # 不使用边属性
             feature = graph_data.x.to(device)
             label = graph_data.y.to(device)
             edge_index = graph_data.edge_index.to(device)
-            pred = model(feature, edge_index)
+            if use_ar:
+                pred = model(feature, edge_index, ta_label=label)
+            else:
+                pred = model(feature, edge_index)
         else:
             # 使用边属性
             feature = graph_data.x.to(device)
             label = graph_data.y.to(device)
             edge_index = graph_data.edge_index.to(device)
             edge_attr = graph_data.edge_attr.to(device)
-            pred = model(feature, edge_index, edge_attr)
+            if use_ar:
+                pred = model(feature, edge_index, edge_attr,
+                             ta_label=label)
+            else:
+                pred = model(feature, edge_index, edge_attr)
 
         # 计算损失
         loss = compute_loss(criterion, pred, label, doy_batch, config)

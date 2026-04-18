@@ -501,7 +501,8 @@ def get_extreme_metrics_per_step(
 criterion = nn.MSELoss()
 
 
-def train(train_loader, model, optimizer, scheduler, config):
+def train(train_loader, model, optimizer, scheduler, config,
+          arch_arg=None, epoch=None, total_epochs=None):
     """
     训练一个epoch
 
@@ -511,12 +512,25 @@ def train(train_loader, model, optimizer, scheduler, config):
         optimizer: 优化器
         scheduler: 学习率调度器
         config: 配置对象
+        arch_arg: 架构参数（可选，用于自回归解码器）
+        epoch: 当前epoch（可选，用于TF衰减）
+        total_epochs: 总epoch数（可选，用于TF衰减）
 
     Returns:
         train_loss: 训练损失（反标准化后的RMSE）
     """
     model.train()
     train_loss = 0
+
+    use_ar = (
+        arch_arg is not None
+        and getattr(arch_arg, 'use_ar_decoder', False)
+        and hasattr(model, 'ar_decoder')
+    )
+
+    if use_ar and epoch is not None and total_epochs is not None:
+        model.ar_decoder.update_teacher_forcing_ratio(
+            epoch, total_epochs)
 
     for batch_idx, batch in enumerate(train_loader):
         optimizer.zero_grad()
@@ -527,14 +541,21 @@ def train(train_loader, model, optimizer, scheduler, config):
             feature = batch[0].x.to(config.device)
             ta_label = batch[0].y.to(config.device)
             edge_index = batch[0].edge_index.to(config.device)
-            ta_pred = model(feature, edge_index)
+            if use_ar:
+                ta_pred = model(feature, edge_index, ta_label=ta_label)
+            else:
+                ta_pred = model(feature, edge_index)
         elif config.use_edge_attr:
             # 使用边属性
             feature = batch[0].x.to(config.device)
             ta_label = batch[0].y.to(config.device)
             edge_index = batch[0].edge_index.to(config.device)
             edge_attr = batch[0].edge_attr.to(config.device)
-            ta_pred = model(feature, edge_index, edge_attr)
+            if use_ar:
+                ta_pred = model(feature, edge_index, edge_attr,
+                                ta_label=ta_label)
+            else:
+                ta_pred = model(feature, edge_index, edge_attr)
 
         loss = criterion(ta_pred, ta_label)
 

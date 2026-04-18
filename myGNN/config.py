@@ -406,6 +406,21 @@ class ArchConfig:
         # 🔥 改进2: GAT残差连接参数
         self.use_skip_connection = True  # 是否在GAT前后添加残差连接
 
+        # ==================== 自回归解码器参数 ====================
+        # 是否启用自回归解码器（False: 保持原MLP一次性输出，向后兼容）
+        self.use_ar_decoder = True
+        # AR解码器的RNN Cell类型: 'GRU' 或 'LSTM'
+        self.ar_cell_type = 'LSTM'
+        # Teacher Forcing 概率 [0.0, 1.0]
+        # 1.0 = 完全监督（训练初期推荐）
+        # 0.0 = 纯自回归（与推理一致）
+        self.ar_teacher_forcing_ratio = 0.5
+        # Teacher Forcing 衰减策略: 'none', 'linear', 'exponential'
+        self.ar_tf_decay = 'linear'
+        # 衰减起始值和终止值
+        self.ar_tf_start = 1.0
+        self.ar_tf_end = 0.0
+
 
 def create_config(loss_type=None, **kwargs):
     """
@@ -476,10 +491,10 @@ def print_config(config, arch_config):
         f"  训练集: 索引 {config.train_start}-{config.train_end - 1} ({config.train_end - config.train_start} 天, 2010-2017年)"
     )
     print(
-        f"  验证集: 索引 {config.val_start}-{config.val_end - 1} ({config.val_end - config.val_start} 天, 2018年)"
+        f"  验证集: 索引 {config.val_start}-{config.val_end - 1} ({config.val_end - config.val_start} 天, 2018-2019年)"
     )
     print(
-        f"  测试集: 索引 {config.test_start}-{config.test_end - 1} ({config.test_end - config.test_start} 天, 2019年)"
+        f"  测试集: 索引 {config.test_start}-{config.test_end - 1} ({config.test_end - config.test_start} 天, 2020年)"
     )
 
     print("\n【时间窗口】")
@@ -541,6 +556,20 @@ def print_config(config, arch_config):
         print(f"  残差连接: {'启用' if arch_config.use_skip_connection else '禁用'}")
         if "GSAGE" in config.exp_model:
             print(f"  SAGE聚合方式: {arch_config.aggr}")
+
+        # 自回归解码器配置
+        print(f"\n【自回归解码器配置】")
+        print(f"  启用状态: {'启用' if arch_config.use_ar_decoder else '禁用'}")
+        if arch_config.use_ar_decoder:
+            print(f"  Cell类型: {arch_config.ar_cell_type}")
+            print(
+                f"  Teacher Forcing率: {arch_config.ar_teacher_forcing_ratio}")
+            if arch_config.ar_tf_decay != 'none':
+                print(f"  TF衰减策略: {arch_config.ar_tf_decay}")
+                print(
+                    f"  TF衰减范围: {arch_config.ar_tf_start} -> {arch_config.ar_tf_end}")
+            else:
+                print(f"  TF衰减策略: 无")
 
     print("\n【图结构】")
     print(f"  图类型: {config.graph_type}")

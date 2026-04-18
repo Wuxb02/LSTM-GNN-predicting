@@ -1117,10 +1117,15 @@ def main():
                 criterion,
                 config,
                 config.device,
+                arch_config,
+                epoch=epoch,
+                total_epochs=config.epochs,
             )
         else:
             # 使用标准训练流程（MSE损失）
-            train_loss = train(train_loader, model, optimizer, scheduler, config)
+            train_loss = train(train_loader, model, optimizer, scheduler,
+                               config, arch_config,
+                               epoch=epoch, total_epochs=config.epochs)
         train_losses.append(train_loss)
 
         # 验证 - 根据配置选择验证方法
