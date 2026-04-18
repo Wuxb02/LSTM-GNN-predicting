@@ -151,7 +151,9 @@ def run_single_experiment(model_name, use_separation, hist_len, graph):
         dynamic_ncols=True,
     )
     for epoch in epoch_bar:
-        train_loss = train(train_loader, model, optimizer, scheduler, config)
+        train_loss = train(train_loader, model, optimizer, scheduler, config,
+                           arch_config,
+                           epoch=epoch, total_epochs=config.epochs)
         val_loss, _, _, _ = val(val_loader, model, config)
 
         # ReduceLROnPlateau 需要手动 step
