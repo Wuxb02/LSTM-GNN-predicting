@@ -21,12 +21,12 @@ import numpy as np
 SCRIPT_DIR = Path(__file__).parent
 ROOT_DIR = SCRIPT_DIR.parent
 
-CKPT_MSE = ROOT_DIR / 'myGNN' / 'checkpoints mean' / 'GAT_SeparateEncoder_MSE'
-CKPT_WGT = ROOT_DIR / 'myGNN' / 'checkpoints mean' / 'GAT_SeparateEncoder_WEIGHTED'
+CKPT_MSE = ROOT_DIR / 'myGNN' / 'checkpoints' / 'GAT_SeparateEncoder_MSE'
+CKPT_WGT = ROOT_DIR / 'myGNN' / 'checkpoints' / 'GAT_SeparateEncoder_20260420_125517'
 STATION_INFO_PATH = ROOT_DIR / 'data' / 'station_info.npy'
 
 # 指定要绘制的站点索引（0-based，共28个站点）
-STATION_IDX = 22
+STATION_IDX = 1
 
 # 图表输出路径
 OUTPUT_DIR = SCRIPT_DIR / 'result'
@@ -36,8 +36,8 @@ OUTPUT_NAME = f'timeseries_comparison_station{STATION_IDX:02d}.png'
 FONTSIZE = 14
 # ────────────────────────────────────────────────────────────────────────────
 
-# 2019-01-01 对应全局天数索引
-_YEAR_2019_START = 3287
+# 2020-01-01 对应全局天数索引（测试集年份）
+_YEAR_2020_START = 3652
 
 
 def load_checkpoint(ckpt_dir: Path) -> dict:
@@ -75,9 +75,9 @@ def extract_station_series(data: dict, station_idx: int, pred_step: int = 0):
 
     dates = [global_idx_to_date(t) for t in time_arr]
 
-    # threshold_map 以 0-based DOY 为索引（非闰年 doy=1 → index 0）
-    # 2019 为非闰年，offset = global_idx - 3287 即为 0-based DOY index
-    doy_indices = (time_arr - _YEAR_2019_START).astype(int)
+    # threshold_map 以 0-based DOY 为索引（非闰年，doy=1 → index 0）
+    # 2020 为闰年，offset = global_idx - 3652 即为 0-based DOY index
+    doy_indices = (time_arr - _YEAR_2020_START).astype(int)
     # 截断到 [0, 364] 以防边界越界
     doy_indices = np.clip(doy_indices, 0, 364)
     thresh_vals = threshold[doy_indices, station_idx]
